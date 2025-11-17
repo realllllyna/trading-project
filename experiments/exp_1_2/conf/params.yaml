@@ -1,0 +1,29 @@
+%YAML 1.2
+---
+
+DATA_ACQUISITON:
+  DATA_PATH: 'C:/Data/Datasets/Financial_Trading/2025_06_19_Trading_Template/Raw'
+  START_DATE: '2020-01-01'
+  END_DATE: '2025-09-12'
+DATA_PREP:
+  PROCESSED_PATH: 'C:/Data/Datasets/Financial_Trading/2025_06_19_Trading_Template/Processed/Experiment_1_2'
+  PREDICTION_PERIODS: [5, 10, 15, 20, 30, 60, 120, 240, 360, 480, 720, 960, 1200]
+  EMA_PERIODS: [5, 10, 15, 20, 30, 60, 120, 240, 360, 480, 720, 960, 1200]
+  SLOPE_PERIODS: [1, 2, 5]
+  Z_NORM_WINDOW: 1200
+  TRAIN_DATE: '2023-12-31'
+  VALIDATION_DATE: '2024-12-31'
+  TEST_DATE: '2025-09-12'
+  FEATURE_PATH: '../03_pre_split_prep/features.txt'
+MODELING:
+  TARGET: 'trend_slope_30m'
+  MODEL_PATH: '../../models'
+  BATCH_SIZE: 2048
+  HIDDEN1: 128
+  HIDDEN2: 64
+  DROPOUT: 0.1
+  WEIGHT_DECAY: 0.0001
+  EPOCHS: 200
+  PATIENCE: 1000
+  LR: 0.0005
+
