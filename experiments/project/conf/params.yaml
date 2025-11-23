@@ -1,0 +1,28 @@
+%YAML 1.2
+---
+
+DATA_ACQUISITION:
+  DATA_PATH: 'C:/Data/Datasets/Financial_Trading/Experiment_2_1/Raw'
+  START_DATE: '2020-01-01'
+  END_DATE: '2025-06-25'
+  SYMBOLS_CSV: '../../data/sp500_companies_as_of_jan_2025.csv'
+
+FEATURE_ENGINEERING:
+  SEQUENCE_LENGTH: 30
+  VOLA_WINDOWS: [5, 10, 15, 30, 60]
+
+DATA_SPLIT:
+  TRAIN_END: '2023-12-31'
+  VALID_END: '2024-12-31'
+  TEST_END: '2025-06-25'
+
+MODEL:
+  TYPE: 'LSTM'
+  HIDDEN_SIZE_1: 64
+  HIDDEN_SIZE_2: 32
+  DROPOUT: 0.1
+  LEARNING_RATE: 0.001
+  BATCH_SIZE: 1024
+  EPOCHS: 50
+  PATIENCE: 10
+  SAVE_PATH: '../../models/experiment_2_1'
