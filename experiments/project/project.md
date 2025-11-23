@@ -1,6 +1,7 @@
 # Vorhersage kurzfristiger Volatilität von S&P-500-Aktien mittels LSTM
 
 ### Problem Definition:
+
 **Zielsetzung**
 
 In diesem Experiment soll vorhergesagt werden, ob eine S&P-500-Aktie in den nächsten
@@ -75,9 +76,8 @@ Als Input wird eine 30-Minuten-Sequenz aller Merkmale genutzt.
 
 **Script**
 
-[bar_retriever.py](scripts/01_data_acquisition/bar_retriever.py)
 - Dieses Skript lädt S&P-500-Symbole aus einer CSV, ruft mit der Alpaca-API die 1-Minuten-Bars ab,
 filtert auf reguläre Handelszeiten, berechnet VWAP und speichert ein bereinigtes Parquet pro Symbol.
-
-<img src="images/01_AAPL_bar_data.png" alt="drawing" width="800"/>
+[bar_retriever.py](scripts/01_data_acquisition/bar_retriever.py)
+![01_AAPL_bar_data.png.png](images/01_AAPL_bar_data.png.png)
 ---
