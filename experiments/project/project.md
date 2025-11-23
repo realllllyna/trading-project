@@ -1,6 +1,6 @@
 # Vorhersage kurzfristiger Volatilität von S&P-500-Aktien mittels LSTM
 
-### Problem Definition:
+## Problem Definition
 
 **Zielsetzung**
 
@@ -80,4 +80,5 @@ Als Input wird eine 30-Minuten-Sequenz aller Merkmale genutzt.
 filtert auf reguläre Handelszeiten, berechnet VWAP und speichert ein bereinigtes Parquet pro Symbol.
 [bar_retriever.py](scripts/01_data_acquisition/bar_retriever.py)
 ![01_AAPL_bar_data.png.png](images/01_AAPL_bar_data.png.png)
+
 ---
