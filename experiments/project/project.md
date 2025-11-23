@@ -2,67 +2,67 @@
 
 ## Problem Definition
 
-**Zielsetzung**
+### Zielsetzung
 
-In diesem Experiment soll vorhergesagt werden, ob eine S&P-500-Aktie in den nächsten
-t = [5, 10, 15, 30, 60] Minuten ruhig bleibt (Low Volatility) oder stark schwankt (High Volatility).
+In diesem Experiment soll vorhergesagt werden, ob eine **S&P-500-Aktie** in den nächsten
+t = [5, 10, 15, 30, 60] Minuten **ruhig bleibt** (Low Volatility) oder **stark schwankt** (High Volatility).
 
-Für jede Aktie und jede Minute im Zeitraum 01.01.2020 bis 25.06.2025 wird untersucht, 
+Für jede Aktie und jede Minute im Zeitraum **01.01.2020 bis 25.06.2025** wird untersucht, 
 ob in den nächsten Minuten eine ungewöhnlich starke Preisbewegung kommt.
 
-**Target**
+### Target
 
 Um zu bestimmen, wie stark sich eine Aktie in den nächsten Minuten bewegt, 
-wird eine Kennzahl berechnet.
+wird eine **Kennzahl** berechnet.
 
-1. Log-Renditen
+**1. Log-Renditen**
 - rₖ = ln(Pₖ / Pₖ₋₁)
 - Das misst die Preisänderung von einer Minute zur nächsten.
 
-2. Realisierte Volatilität 
+**2. Realisierte Volatilität**
 - RV(τ, t) = √( Σ rₖ² )  für k = τ+1 bis τ+t
 - Alle Preisänderungen in einem t-Minuten-Fenster werden zusammengefasst.
 - Je größer dieses Ergebnis, desto stärker schwankt die Aktie.
 
-3. Normalisierung: 
+**3. Normalisierung**
 - RV_norm(τ, t) = RV(τ, t) / durchschnittliche Tagesvolatilität
 - Manche Aktien sind immer sehr volatil, manche sind immer ruhig.
 Durch Division durch die eigene Tagesvolatilität wird alles fair.
 
-4. Label-Definition:
+**4. Label-Definition**
 - Die Werte werden dann soriert. Das Modell soll jetzt 0 oder 1 vorhersagen.
 - Top 30 % der normalisierten Werte → High Volatility → y(τ, t) = 1
 - Untere 70 % → Low Volatility → y(τ, t) = 0
 
-**Input Features**
+### Input Features
 
 Das Modell sieht nur Informationen, die vor Zeitpunkt τ vorhanden sind.
-Als Input wird eine 30-Minuten-Sequenz aller Merkmale genutzt.
+Als Input wird eine **30-Minuten-Sequenz** aller Merkmale genutzt.
 
-1. Preisbezogene Features
+**1. Preisbezogene Features**
 - Normalisierter Schlusskurs
 - 1-Minuten-Log-Return
 - Rolling Return (5 Minuten)
 - Rolling Volatilität (15 Minuten)
 - Sie helfen dem Modell zu erkennen, ob der Markt gerade ruhig oder aktiv ist.
 
-2. VWAP & Abweichung
+**2. VWAP & Abweichung**
 - Intraday-VWAP
 - Relative Abweichung vom VWAP
 - Wenn der Preis weit vom fairen Tagespreis entfernt ist, steigt das Volatilitätsrisiko.
 
-3. Volumen & Liquidität
+**3. Volumen & Liquidität**
 - Normalisiertes Volumen
 - Rolling-Volume (15 Minuten)
 - Volumenspikes (Volume / SMA-60)
 - Hohe Aktivität deutet oft auf kommende Schwankungen hin.
 
-4. Handelsbereich
+**4. Handelsbereich**
 - Normalisierter High-Low-Spread
 - Rolling-Range (15 Minuten)
 - Je größer diese Werte, desto unruhiger war der Markt bereits.
 
-5. Zeitliche Merkmale
+**5. Zeitliche Merkmale**
 - Minute des Handelstages (sin/cos)
 - Dummy: erste 30 Minuten nach Markteröffnung
 - Dummy: letzte 30 Minuten vor Handelsschluss
@@ -71,10 +71,10 @@ Als Input wird eine 30-Minuten-Sequenz aller Merkmale genutzt.
 ---
 
 ## Data Acquisition
-- Die historischen 1-Minuten-Daten werden über die Alpaca Market Data API  abgerufen.
+- Die historischen 1-Minuten-Daten werden über die **Alpaca Market Data API** abgerufen.
 - Für jede Aktie wird eine Datei {TICKER}.parquet gespeichert.
 
-**Script**
+### Script
 
 - Dieses Skript lädt S&P-500-Symbole aus einer CSV, ruft mit der Alpaca-API die 1-Minuten-Bars ab,
 filtert auf reguläre Handelszeiten, berechnet VWAP und speichert ein bereinigtes Parquet pro Symbol.
