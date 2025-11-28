@@ -70,7 +70,7 @@ Als Input wird eine **30-Minuten-Sequenz** aller Merkmale genutzt.
 
 ---
 
-## Data Acquisition
+## Step 1 – Data Acquisition
 - Die historischen 1-Minuten-Daten werden über die **Alpaca Market Data API** abgerufen.
 - Für jede Aktie wird eine Datei {TICKER}.parquet gespeichert.
 
@@ -78,7 +78,25 @@ Als Input wird eine **30-Minuten-Sequenz** aller Merkmale genutzt.
 
 - Dieses Skript lädt S&P-500-Symbole aus einer CSV, ruft mit der Alpaca-API die 1-Minuten-Bars ab,
 filtert auf reguläre Handelszeiten, berechnet VWAP und speichert ein bereinigtes Parquet pro Symbol.
-[bar_retriever.py](scripts/01_data_acquisition/bar_retriever.py)
+- [`bar_retriever.py`](scripts/01_data_acquisition/bar_retriever.py)
+
 ![01_AAPL_bar_data.png.png](images/01_AAPL_bar_data.png.png)
+
+---
+
+## Step 2 – Data Understanding
+
+This step visualizes intraday 1-minute open prices of individual S&P 500 stocks and inspects their behaviour around a fixed time index.
+
+**Script**
+
+[`plotter.py`](scripts/02_data_understanding/plotter.py)
+
+**Plots**
+
+<img src="images/02_AAPL_open.png" alt="AAPL open window" width="800"/>
+<img src="images/02_NVDA_open.png" alt="NVDA open window" width="800"/>
+
+*Die Volatilität ist eher hoch – besonders an den Tagesöffnungen.*
 
 ---
