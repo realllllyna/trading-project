@@ -115,19 +115,19 @@ und untersucht ihr Verhalten um einen festen Zeitindex herum.
 
 ### Main Script
 
-[main.py](scripts/03_pre_split_prep/main.py)
+[`main.py`](scripts/03_pre_split_prep/main.py)
 
 ### Feature Engineering Script
 
-[features.py](scripts/03_pre_split_prep/features.py)
+[`features.py`](scripts/03_pre_split_prep/features.py)
 
 ### Target Computation Script
 
-[targets.py](scripts/03_pre_split_prep/targets.py)
+[`targets.py`](scripts/03_pre_split_prep/targets.py)
 
 ### Plotting Script
 
-[plot_features.py](scripts/03_pre_split_prep/plot_features.py)
+[`plot_features.py`](scripts/03_pre_split_prep/plot_features.py)
 
 ### Plots
 
@@ -135,7 +135,7 @@ und untersucht ihr Verhalten um einen festen Zeitindex herum.
 
 *Plot of selected features over time for AAPL.*
 
-- Data extract after feature engineering:
-[features_example.csv](data/features_example.csv)
+### Data after feature engineering
+[`features_example.csv`](data/features_example.csv)
 
 ---
