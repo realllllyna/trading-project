@@ -86,17 +86,56 @@ filtert auf reguläre Handelszeiten, berechnet VWAP und speichert ein bereinigte
 
 ## Step 2 – Data Understanding
 
-This step visualizes intraday 1-minute open prices of individual S&P 500 stocks and inspects their behaviour around a fixed time index.
+Dieser Schritt visualisiert Intraday-1-Minuten-Open-Preise einzelner S&P-500-Aktien 
+und untersucht ihr Verhalten um einen festen Zeitindex herum.
 
-**Script**
+### Script
 
 [`plotter.py`](scripts/02_data_understanding/plotter.py)
 
-**Plots**
+### Plots
 
 <img src="images/02_AAPL_open.png" alt="AAPL open window" width="800"/>
 <img src="images/02_NVDA_open.png" alt="NVDA open window" width="800"/>
 
 *Die Volatilität ist eher hoch – besonders an den Tagesöffnungen.*
+
+---
+
+## Step 3 – Pre-Split Preparation
+
+- **Targets berechnen**
+  - Zukünftige realisierte Volatilität bestimmen, normalisieren und in High/Low-Volatility-Labels umwandeln.
+
+- **Features erzeugen**
+  - Preis-, Volumen-, VWAP-, Range- und Zeit-Features wie Log-Returns, Rolling-Volatilität, VWAP-Abweichung und sin/cos-Zeitkodierung berechnen.
+
+- **Daten splitten**
+  - Datensatz chronologisch in Train, Validation und Test aufteilen.
+
+### Main Script
+
+[main.py](scripts/03_pre_split_prep/main.py)
+
+### Feature Engineering Script
+
+[features.py](scripts/03_pre_split_prep/features.py)
+
+### Target Computation Script
+
+[targets.py](scripts/03_pre_split_prep/targets.py)
+
+### Plotting Script
+
+[plot_features.py](scripts/03_pre_split_prep/plot_features.py)
+
+### Plots
+
+![03_plot_features.png](images/03_plot_features.png)
+
+*Plot of selected features over time for AAPL.*
+
+- Data extract after feature engineering:
+[features_example.csv](data/features_example.csv)
 
 ---

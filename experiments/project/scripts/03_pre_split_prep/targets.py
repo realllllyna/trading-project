@@ -1,7 +1,7 @@
 """
 Target engineering utilities for the volatility experiment.
 
-Für jede Minute und jeden Prognosehorizont t in VOLA_WINDOWS werden berechnet:
+Für jede Minute und jeden Prognosehorizont t (z. B. 5, 15, 30 Minuten) werden berechnet:
 - zukünftige realisierte Volatilität RV_t(τ) über die nächsten t Minuten
 - tages-normalisierte Volatilität (RV_t / Tagesmittel)
 - binäres Label: High Volatility (1) / Low/Normal Volatility (0)

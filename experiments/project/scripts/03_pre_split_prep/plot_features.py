@@ -42,7 +42,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import yaml
 
-# Features, die geplottet werden sollen (kannst du bei Bedarf anpassen)
+# Features, die geplottet werden sollen
 FEATURES = [
     "log_ret_1m",
     "roll_vol_15m",
@@ -145,7 +145,6 @@ def main():
 
     df = pd.read_parquet(train_file)
 
-    # Beispielindex – bei Bedarf anpassen
     target_index = 2500
     target_index = min(target_index, len(df) - 1)
 
