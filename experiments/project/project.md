@@ -139,3 +139,18 @@ und untersucht ihr Verhalten um einen festen Zeitindex herum.
 [`features_example.csv`](data/features_example.csv)
 
 ---
+
+## Step 4 – Split Data
+
+Die Daten werden sowohl **pro Aktie** als auch **global über alle Aktien** gemischt und in gleich große Shards aufgeteilt.  
+Damit enthalten Trainings-Batches Daten aus verschiedenen Aktien und Zeiträumen und können effizient geladen werden.
+
+### Script
+[`shuffle.py`](scripts/04_split_data/shuffle.py)
+
+---
+
+## Step 5 – Post-Split Preparation
+Nach dem Shuffling und Sharding sind keine weiteren Schritte notwendig.
+
+---
