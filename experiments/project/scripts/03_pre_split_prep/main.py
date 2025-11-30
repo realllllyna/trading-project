@@ -19,7 +19,7 @@ import os
 import pandas as pd
 import yaml
 
-import features  # lokale Module im gleichen Ordner
+import features
 import targets
 
 

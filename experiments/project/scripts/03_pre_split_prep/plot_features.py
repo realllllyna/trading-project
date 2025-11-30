@@ -14,14 +14,14 @@ This script:
     - green dashed lines at the beginning of each trading day,
     - formatted timestamp labels on the x-axis.
 
-Assumptions:
+Input:
 - The training Parquet file contains at least:
     'timestamp',
     'log_ret_1m',
     'roll_vol_15m',
     'vwap_dev',
     'volume_z_30m',
-    'RV_norm_30m'    (example volatility target for t=30)
+    'RV_norm_30m'.
 - Timestamps are sorted and represent 1-minute bars.
 
 Output:
@@ -48,7 +48,7 @@ FEATURES = [
     "roll_vol_15m",
     "vwap_dev",
     "volume_z_30m",
-    "RV_norm_30m",  # normalisierte Volatilität für t=30
+    "RV_norm_30m",
 ]
 
 

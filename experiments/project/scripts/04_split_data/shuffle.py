@@ -5,36 +5,21 @@ This script reads the processed data path from the experiment's params.yaml
 and produces fully shuffled, uniformly sharded Parquet files for each split
 (train, validation, test) using DuckDB.
 
-Processing pipeline (for each split):
--------------------------------------
+Input:
+- Per-symbol preprocessed Parquet files under:
+    <processed_path>/*_<split>.parquet
+  (e.g. AAPL_train.parquet, MSFT_train.parquet, ...)
 
-1) Per-symbol shuffle:
-   - For each file matching `*_<split>.parquet`, create a fully shuffled copy
-     under `<processed_path>_indiv_shuffled/` using `ORDER BY random()`.
-   - This removes any chronological ordering inside each asset.
-
-2) Global sharding:
-   - Load all individually shuffled files.
-   - Assign rows to shards using:
-         mod(row_number() OVER (), n_shards)
-   - Write uniform shard files:
-         <processed_path>_shuffled/<split>_shard_<k>.parquet
-
-Outputs:
---------
-- <processed_path>_indiv_shuffled/*.parquet
-- <processed_path>_shuffled/<split>_shard_*.parquet
+Output:
+- Per-symbol shuffled files under:
+    D:/Data/Datasets/Financial_Trading/Experiment_2_1/Processed_indiv_shuffled/
+- Global shard files under:
+    D:/Data/Datasets/Financial_Trading/Experiment_2_1/Processed_shuffled/
 
 Requirements:
 -------------
 - DuckDB installed (pip install duckdb)
 - Parquet files produced by Step 3
-
-Notes:
-------
-- Shuffling uses DuckDB’s non-deterministic random() → batches vary each run.
-- The number of shards equals the number of per-symbol input files.
-- Run this script from its own directory or adjust paths.
 """
 
 import glob
@@ -47,19 +32,33 @@ import yaml
 # Load experiment configuration
 # ---------------------------------------------------------
 params = yaml.safe_load(open("../../conf/params.yaml"))
-processed_path = params["DATA_PREP"]["PROCESSED_PATH"]
+processed_path = params["FEATURE_ENGINEERING"]["PROCESSED_PATH"]
+
+# Base path on D: for shuffled data
+SHUFFLE_BASE = r"D:/Data/Datasets/Financial_Trading/Experiment_2_1"
+
+# Ensure the D: directories exist
+INDIV_BASE_DIR = os.path.join(SHUFFLE_BASE, "Processed_indiv_shuffled")
+SHARD_BASE_DIR = os.path.join(SHUFFLE_BASE, "Processed_shuffled")
+
+os.makedirs(INDIV_BASE_DIR, exist_ok=True)
+os.makedirs(SHARD_BASE_DIR, exist_ok=True)
 
 
 # ---------------------------------------------------------
 # Shuffle + Shard function
 # ---------------------------------------------------------
 def shuffle(split_type: str) -> None:
-    # All *_<split>.parquet files
+    # All *_<split>.parquet files from C: processed path
     temp_files = glob.glob(f"{processed_path}/*_{split_type}.parquet")
 
-    # Output directories
-    indiv_dir = f"{processed_path}_indiv_shuffled"
-    os.makedirs(indiv_dir, exist_ok=True)
+    if not temp_files:
+        print(f"No files found for split '{split_type}' in {processed_path}")
+        return
+
+    # Output directories on D:
+    indiv_dir = INDIV_BASE_DIR
+    shard_dir = SHARD_BASE_DIR
 
     # ---------------------------------------------------------
     # Stage 1 — shuffle each file individually
@@ -88,7 +87,6 @@ def shuffle(split_type: str) -> None:
     shuffled_files_path = f"{indiv_dir}/*_{split_type}.parquet"
 
     n_shards = len(temp_files)
-    shard_dir = f"{processed_path}_shuffled"
     os.makedirs(shard_dir, exist_ok=True)
 
     for shard in range(n_shards):
@@ -110,7 +108,7 @@ def shuffle(split_type: str) -> None:
                 TO '{out_file}' (FORMAT 'parquet', OVERWRITE_OR_IGNORE)
             """)
         except Exception as e:
-            print(f"Error generating shard {shard}: {e}")
+            print(f"Error generating shard {shard} for split '{split_type}': {e}")
             continue
 
 

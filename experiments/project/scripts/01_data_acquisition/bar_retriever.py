@@ -18,12 +18,13 @@ Requirements:
 
 import os
 from datetime import datetime
+
 import pandas as pd
 import yaml
+from alpaca.data.enums import Adjustment
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
-from alpaca.data.enums import Adjustment
 
 # 1. Load configuration
 params = yaml.safe_load(open("../../conf/params.yaml", "r"))
