@@ -21,8 +21,7 @@ wird eine **Kennzahl** berechnet.
 
 **2. Realisierte Volatilität**
 - RV(τ, t) = √( Σ rₖ² )  für k = τ+1 bis τ+t
-- Alle Preisänderungen in einem t-Minuten-Fenster werden zusammengefasst.
-- Je größer dieses Ergebnis, desto stärker schwankt die Aktie.
+- Alle Preisänderungen in einem t-Minuten-Fenster werden zusammengefasst. Je größer dieses Ergebnis, desto stärker schwankt die Aktie.
 
 **3. Normalisierung**
 - RV_norm(τ, t) = RV(τ, t) / durchschnittliche Tagesvolatilität
@@ -30,8 +29,8 @@ wird eine **Kennzahl** berechnet.
 Durch Division durch die eigene Tagesvolatilität wird alles fair.
 
 **4. Label-Definition**
-- Die Werte werden dann soriert. Das Modell soll jetzt 0 oder 1 vorhersagen.
-- Top 30 % der normalisierten Werte → High Volatility → y(τ, t) = 1
+- Die Werte werden dann sortiert. Das Modell soll jetzt 0 oder 1 vorhersagen.
+- Top 30 % → High Volatility → y(τ, t) = 1
 - Untere 70 % → Low Volatility → y(τ, t) = 0
 
 ### Input Features
@@ -44,29 +43,24 @@ Als Input wird eine **30-Minuten-Sequenz** aller Merkmale genutzt.
 - 1-Minuten-Log-Return
 - Rolling Return (5 Minuten)
 - Rolling Volatilität (15 Minuten)
-- Sie helfen dem Modell zu erkennen, ob der Markt gerade ruhig oder aktiv ist.
 
 **2. VWAP & Abweichung**
 - Intraday-VWAP
 - Relative Abweichung vom VWAP
-- Wenn der Preis weit vom fairen Tagespreis entfernt ist, steigt das Volatilitätsrisiko.
 
 **3. Volumen & Liquidität**
 - Normalisiertes Volumen
 - Rolling-Volume (15 Minuten)
 - Volumenspikes (Volume / SMA-60)
-- Hohe Aktivität deutet oft auf kommende Schwankungen hin.
 
 **4. Handelsbereich**
 - Normalisierter High-Low-Spread
 - Rolling-Range (15 Minuten)
-- Je größer diese Werte, desto unruhiger war der Markt bereits.
 
 **5. Zeitliche Merkmale**
 - Minute des Handelstages (sin/cos)
 - Dummy: erste 30 Minuten nach Markteröffnung
 - Dummy: letzte 30 Minuten vor Handelsschluss
-- So kann das Modell lernen, dass bestimmte Zeiten generell volatiler sind als andere.
 
 ---
 
@@ -76,9 +70,7 @@ Als Input wird eine **30-Minuten-Sequenz** aller Merkmale genutzt.
 
 ### Script
 
-- Dieses Skript lädt S&P-500-Symbole aus einer CSV, ruft mit der Alpaca-API die 1-Minuten-Bars ab,
-filtert auf reguläre Handelszeiten, berechnet VWAP und speichert ein bereinigtes Parquet pro Symbol.
-- [`bar_retriever.py`](scripts/01_data_acquisition/bar_retriever.py)
+[`bar_retriever.py`](scripts/01_data_acquisition/bar_retriever.py)
 
 ![01_AAPL_bar_data.png.png](images/01_AAPL_bar_data.png.png)
 
@@ -152,5 +144,23 @@ Damit enthalten Trainings-Batches Daten aus verschiedenen Aktien und Zeiträumen
 
 ## Step 5 – Post-Split Preparation
 Nach dem Shuffling und Sharding sind keine weiteren Schritte notwendig.
+
+---
+
+## Step 6 – Feature Selection
+
+Der Random Forest erkennt **nichtlineare Zusammenhänge** zwischen Features
+und dem Volatilitäts-Label und liefert ein klares Ranking der Feature-Wichtigkeiten.
+
+### Script
+
+[`main.py`](scripts/06_feature_selection/main.py)
+
+### Feature Importance
+
+![06_random_forest.png.png](images/06_random_forest.png.png)
+
+*Zeitbasierte Muster und kurzfristige Volatilitäts-Features sind am wichtigsten.
+Alle 13 Features werden für das LSTM weiterverwendet.*
 
 ---
