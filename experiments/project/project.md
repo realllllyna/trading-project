@@ -123,9 +123,14 @@ und untersucht ihr Verhalten um einen festen Zeitindex herum.
 
 ### Plots
 
-![03_plot_features.png](images/03_plot_features.png)
+![03_plot_features_1.png.png](images/03_plot_features_1.png.png)
+![03_plot_features_2.png.png](images/03_plot_features_2.png.png)
+![03_plot_features_3.png.png](images/03_plot_features_3.png.png)
+![03_plot_features_4.png.png](images/03_plot_features_4.png.png)
+![03_plot_features_5.png.png](images/03_plot_features_5.png.png)
+![03_plot_features_6.png.png](images/03_plot_features_6.png.png)
 
-*Plot of selected features over time for AAPL.*
+*Plots of selected features over time for AAPL.*
 
 ### Data after feature engineering
 [`features_example.csv`](data/features_example.csv)
