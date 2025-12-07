@@ -18,12 +18,13 @@ DATA_SPLIT:
   TEST_END: '2025-06-25'
 
 MODEL:
+  TARGET: 'vol_label_30m'
   TYPE: 'LSTM'
   HIDDEN_SIZE_1: 64
   HIDDEN_SIZE_2: 32
   DROPOUT: 0.1
   LEARNING_RATE: 0.001
   BATCH_SIZE: 1024
-  EPOCHS: 50
+  EPOCHS: 10
   PATIENCE: 10
-  SAVE_PATH: '../../models/experiment_2_1'
+  SAVE_PATH: '../../models'
