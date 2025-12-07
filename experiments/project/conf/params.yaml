@@ -8,8 +8,7 @@ DATA_ACQUISITION:
   SYMBOLS_CSV: '../../data/sp500_companies_as_of_jan_2025.csv'
 
 FEATURE_ENGINEERING:
-  SEQUENCE_LENGTH: 30
-  VOLA_WINDOWS: [5, 10, 15, 30, 60]
+  VOLA_WINDOWS: [ 5, 10, 15, 30, 60 ]
   PROCESSED_PATH: 'C:/Data/Datasets/Financial_Trading/Experiment_2_1/Processed'
 
 DATA_SPLIT:
@@ -19,12 +18,8 @@ DATA_SPLIT:
 
 MODEL:
   TARGET: 'vol_label_30m'
-  TYPE: 'LSTM'
-  HIDDEN_SIZE_1: 64
-  HIDDEN_SIZE_2: 32
-  DROPOUT: 0.1
-  LEARNING_RATE: 0.001
-  BATCH_SIZE: 1024
-  EPOCHS: 10
-  PATIENCE: 10
+  TYPE: 'GBT'
+  LEARNING_RATE: 0.05
+  MAX_DEPTH: 6
+  N_ESTIMATORS: 300
   SAVE_PATH: '../../models'
