@@ -142,11 +142,15 @@ und untersucht ihr Verhalten um einen festen Zeitindex herum.
 
 ## Step 4 – Split Data
 
-Die Daten werden sowohl **pro Aktie** als auch **global über alle Aktien** gemischt und in gleich große Shards aufgeteilt.  
-Damit enthalten Trainings-Batches Daten aus verschiedenen Aktien und Zeiträumen und können effizient geladen werden.
+Die vorbereiteten Minuten-Daten werden in feste **LSTM-Sequenzen** umgewandelt. 
+Für jeden Split (Train/Validation/Test) werden aus jeweils **30 Minuten Historie** eine Eingabesequenz 
+und das passende Target erzeugt und als kompakte .npz-Shards gespeichert.
 
 ### Script
-[`shuffle.py`](scripts/04_split_data/shuffle.py)
+[`build_lstm_sequences.py`](scripts/04_split_data/build_lstm_sequences.py)
+
+### Data after building sequences
+[`sequence_example.csv`](data/sequence_example.csv)
 
 ---
 

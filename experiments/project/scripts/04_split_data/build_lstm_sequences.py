@@ -1,127 +1,142 @@
 """
-build_lstm_sequences.py
+Baut LSTM-Sequenzen aus den vorprozessierten Parquet-Dateien und speichert sie
+als .npz-Shards, getrennt nach Train/Validation/Test.
 
-Baut LSTM-Sequenzen aus den symbolweisen, vorverarbeiteten Parquet-Dateien
-und speichert sie in vielen kleinen .npz-Chunks auf D:.
+Input (aus Schritt 3):
+    <PROCESSED_PATH>/{SYMBOL}_train.parquet
+    <PROCESSED_PATH>/{SYMBOL}_validation.parquet
+    <PROCESSED_PATH>/{SYMBOL}_test.parquet
 
-Wichtig:
-- Es werden ALLE möglichen Sequenzen gebaut (kein Downsampling),
-  aber nie alle gleichzeitig im RAM gehalten, sondern in Chunks.
+Output:
+    <SEQUENCE_PATH>/
+        train/train_shard_000.npz
+        train/train_shard_001.npz
+        validation/val_shard_000.npz
+        test/test_shard_000.npz
+    In jeder .npz:
+        X: [N, seq_len, n_features]
+        y: [N]
+        symbols: [N]
+        timestamps: [N]
 """
 
+from __future__ import annotations
+
+import glob
 import os
-from typing import List
 
 import numpy as np
 import pandas as pd
-import yaml
 
-from dataset_utils import generate_sequence_chunks
+from dataset_utils import load_params, load_feature_list, build_sequences_from_df
 
 
-def list_symbol_files(processed_path: str, split: str) -> List[str]:
-    """
-    Liste aller Dateien wie AAPL_train.parquet, MSFT_train.parquet usw.
-    """
-    files: List[str] = []
-    for fname in os.listdir(processed_path):
-        if fname.endswith(f"_{split}.parquet"):
-            files.append(os.path.join(processed_path, fname))
-    files.sort()
-    return files
+def ensure_dir(path: str) -> None:
+    os.makedirs(path, exist_ok=True)
+
+
+def save_shard(
+        X_list,
+        y_list,
+        sym_list,
+        ts_list,
+        out_dir: str,
+        split: str,
+        shard_idx: int,
+) -> None:
+    if not X_list:
+        return
+
+    X = np.concatenate(X_list, axis=0)
+    y = np.concatenate(y_list, axis=0)
+    symbols = np.concatenate(sym_list, axis=0)
+    timestamps = np.concatenate(ts_list, axis=0)
+
+    fname = (
+        f"{split}_shard_{shard_idx:03d}.npz"
+        if split == "train"
+        else f"{split}_shard_{shard_idx:03d}.npz"
+    )
+    out_path = os.path.join(out_dir, split, fname)
+    ensure_dir(os.path.dirname(out_path))
+
+    np.savez_compressed(
+        out_path,
+        X=X,
+        y=y,
+        symbols=symbols,
+        timestamps=timestamps,
+    )
+    print(
+        f"  Saved {split} shard {shard_idx:03d} with {len(y)} sequences "
+        f"to {out_path}"
+    )
 
 
 def main():
-    np.random.seed(42)
+    params = load_params()
 
-    # params.yaml laden
-    params = yaml.safe_load(open("../../conf/params.yaml", "r"))
-
-    processed_path = params["FEATURE_ENGINEERING"]["PROCESSED_PATH"]  # C:/.../Processed
+    processed_path = params["FEATURE_ENGINEERING"]["PROCESSED_PATH"]
     seq_len = params["FEATURE_ENGINEERING"]["SEQUENCE_LENGTH"]
+    seq_cfg = params["SEQUENCE_BUILD"]
+    seq_out_root = seq_cfg["SEQUENCE_PATH"]
+    shard_size = seq_cfg["SHARD_SIZE"]
     target_col = params["MODEL"]["TARGET"]
 
-    # Featureliste
-    feature_file = "../../scripts/03_pre_split_prep/features.txt"
-    feature_cols = [
-        line.strip()
-        for line in open(feature_file, "r", encoding="utf-8")
-        if line.strip()
-    ]
+    feature_cols = load_feature_list()
+    print("Using feature columns:", feature_cols)
+    print("Target column:", target_col)
+    print("Sequence length:", seq_len)
+    print("Shard size:", shard_size)
 
-    print(f"Processed path (per symbol): {processed_path}")
-    print(f"Sequence length: {seq_len}")
-    print(f"Target column: {target_col}")
-    print(f"Number of features: {len(feature_cols)}")
+    splits = {
+        "train": "train",
+        "validation": "validation",
+        "test": "test",
+    }
 
-    # Basis-Pfad auf D: für Sequenzen
-    SEQ_BASE = r"D:/Data/Datasets/Financial_Trading/Experiment_2_1"
-    out_base = os.path.join(SEQ_BASE, "LSTM_sequences_chunks")
-    os.makedirs(out_base, exist_ok=True)
-    print(f"Sequence chunks will be saved to: {out_base}")
+    for split, split_suffix in splits.items():
+        print(f"\nBuilding sequences for split: {split}")
 
-    # wie viele Sequenzen pro Chunk im RAM bauen?
-    CHUNK_NUM_SEQS = 50_000  # kannst du bei Bedarf erhöhen/verkleinern
-
-    global_chunk_id = 0
-
-    for split in ["train", "validation", "test"]:
-        print(f"\n=== BUILDING SEQUENCE CHUNKS FOR SPLIT: {split} ===")
-
-        split_files = list_symbol_files(processed_path, split)
-        if not split_files:
-            print(f"  No *_{split}.parquet files found, skipping.")
+        pattern = os.path.join(processed_path, f"*_{split_suffix}.parquet")
+        files = sorted(glob.glob(pattern))
+        if not files:
+            print(f"  No files found for pattern: {pattern}")
             continue
 
-        for path in split_files:
-            symbol_name = os.path.basename(path).split("_")[0]
-            print(f"  Processing {symbol_name} ({path})")
+        shard_idx = 0
+        X_acc = []
+        y_acc = []
+        sym_acc = []
+        ts_acc = []
 
-            df = pd.read_parquet(path)
+        for fpath in files:
+            symbol = os.path.basename(fpath).split("_")[0]
+            print(f"  Reading {fpath} ({symbol})")
+            df = pd.read_parquet(fpath)
 
-            required_cols = set(feature_cols + [target_col, "timestamp"])
-            missing = required_cols.difference(df.columns)
-            if missing:
-                print(f"    Skipping {symbol_name}: missing columns {missing}")
+            X, y, symbols, timestamps = build_sequences_from_df(
+                df, feature_cols, target_col, seq_len
+            )
+            if len(y) == 0:
+                print(f"    Not enough rows for sequences, skipping {symbol}.")
                 continue
 
-            df = df[list(required_cols)]
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
-            df = df.sort_values("timestamp").reset_index(drop=True)
-            df = df.dropna().reset_index(drop=True)
+            X_acc.append(X)
+            y_acc.append(y)
+            sym_acc.append(symbols)
+            ts_acc.append(timestamps)
 
-            n_rows = len(df)
-            if n_rows < seq_len:
-                print(f"    Skipping {symbol_name}: only {n_rows} rows (< seq_len={seq_len}).")
-                continue
+            # Wenn genug gesammelt → Shard schreiben
+            total_seqs = sum(len(chunk) for chunk in y_acc)
+            if total_seqs >= shard_size:
+                save_shard(X_acc, y_acc, sym_acc, ts_acc, seq_out_root, split, shard_idx)
+                shard_idx += 1
+                X_acc, y_acc, sym_acc, ts_acc = [], [], [], []
 
-            chunk_idx = 0
-            for X_chunk, y_chunk in generate_sequence_chunks(
-                    df,
-                    feature_cols=feature_cols,
-                    target_col=target_col,
-                    seq_len=seq_len,
-                    chunk_num_sequences=CHUNK_NUM_SEQS,
-            ):
-                n_chunk = len(X_chunk)
-                if n_chunk == 0:
-                    continue
-
-                out_file = os.path.join(
-                    out_base,
-                    f"{split}_{symbol_name}_chunk_{global_chunk_id:06d}.npz",
-                )
-                print(
-                    f"    Saving chunk {chunk_idx} for {symbol_name} "
-                    f"({n_chunk} sequences) → {out_file}"
-                )
-
-                np.savez_compressed(out_file, X=X_chunk, y=y_chunk)
-
-                chunk_idx += 1
-                global_chunk_id += 1
-
-    print("\n✔ LSTM sequence chunk building complete.")
+        # Reste schreiben
+        if X_acc:
+            save_shard(X_acc, y_acc, sym_acc, ts_acc, seq_out_root, split, shard_idx)
 
 
 if __name__ == "__main__":
