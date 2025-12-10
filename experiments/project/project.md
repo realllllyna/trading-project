@@ -155,7 +155,7 @@ und das passende Target erzeugt und als kompakte .npz-Shards gespeichert.
 ---
 
 ## Step 5 – Post-Split Preparation
-Nach dem Shuffling und Sharding sind keine weiteren Schritte notwendig.
+Nach der Erstellung der LSTM-Sequenzen sind keine weiteren Schritte notwendig.
 
 ---
 
