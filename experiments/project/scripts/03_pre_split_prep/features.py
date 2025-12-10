@@ -33,7 +33,6 @@ EPS = 1e-12
 
 def generate_features(
         bars_df: pd.DataFrame,
-        sequence_length: int = 30,
 ) -> tuple[pd.DataFrame, list[str]]:
     df = bars_df.copy()
 
@@ -56,7 +55,7 @@ def generate_features(
     # -----------------------------
     # 2. VWAP & Abweichung
     # -----------------------------
-    df["vwap_dev"] = (df["Close"] - df["vwap"]) / df["vwap"]
+    df["vwap_dev"] = (df["Close"] - df["vwap"]) / (df["vwap"] + EPS)
 
     # VWAP-Z-Score (30 Minuten)
     vwap_roll_mean = df["vwap"].rolling(30).mean()
@@ -75,12 +74,11 @@ def generate_features(
     # -----------------------------
     # 4. Handelsbereich
     # -----------------------------
-    df["hl_spread"] = (df["High"] - df["Low"]) / df["Close"]
+    df["hl_spread"] = (df["High"] - df["Low"]) / (df["Close"] + EPS)
 
-    # Rolling-Range (15 Minuten)
     high_max_15 = df["High"].rolling(15).max()
     low_min_15 = df["Low"].rolling(15).min()
-    df["hl_range_15m"] = (high_max_15 - low_min_15) / df["Close"]
+    df["hl_range_15m"] = (high_max_15 - low_min_15) / (df["Close"] + EPS)
 
     # -----------------------------
     # 5. Zeitliche Merkmale
@@ -92,12 +90,14 @@ def generate_features(
     else:
         ts_local = ts
 
-    minute_of_day = ts_local.dt.hour * 60 + ts_local.dt.minute  # 0..389 typischerweise
-    df["time_sin"] = np.sin(2 * np.pi * minute_of_day / 390.0)
-    df["time_cos"] = np.cos(2 * np.pi * minute_of_day / 390.0)
+    # Minuten seit Handelsbeginn (09:30 US/Eastern): 0..389 bei 1-Minuten-Bars
+    minute_of_session = (ts_local.dt.hour - 9) * 60 + (ts_local.dt.minute - 30)
 
-    df["is_open30"] = (minute_of_day < 30).astype(int)
-    df["is_close30"] = (minute_of_day >= 390 - 30).astype(int)
+    df["time_sin"] = np.sin(2 * np.pi * minute_of_session / 390.0)
+    df["time_cos"] = np.cos(2 * np.pi * minute_of_session / 390.0)
+
+    df["is_open30"] = (minute_of_session < 30).astype(int)
+    df["is_close30"] = (minute_of_session >= 390 - 30).astype(int)
 
     # -----------------------------
     # Featureliste

@@ -31,7 +31,7 @@ def add_volatility_targets(
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df = df.sort_values("timestamp").reset_index(drop=True)
 
-    # 1-Minuten-Log-Returns für das Target (kann parallel zu Feature-Version existieren)
+    # 1-Minuten-Log-Returns für das Target
     log_ret = np.log(df[price_col] / df[price_col].shift(1))
 
     # Datumsspalte (für Tagesmittel)

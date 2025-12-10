@@ -10,16 +10,26 @@ DATA_ACQUISITION:
 FEATURE_ENGINEERING:
   VOLA_WINDOWS: [ 5, 10, 15, 30, 60 ]
   PROCESSED_PATH: 'C:/Data/Datasets/Financial_Trading/Experiment_2_1/Processed'
+  SEQUENCE_LENGTH: 30
 
 DATA_SPLIT:
   TRAIN_END: '2023-12-31'
   VALID_END: '2024-12-31'
   TEST_END: '2025-06-25'
 
+SEQUENCE_BUILD:
+  SEQUENCE_PATH: 'D:/Data/Datasets/Financial_Trading/Experiment_2_1/LSTM_Sequences'
+  TARGET_HORIZON_MINUTES: 30  # 30-Minuten-Volatilität vorhersagen
+  SHARD_SIZE: 10000           # wie viele Sequenzen pro .npz
+
 MODEL:
+  TYPE: 'LSTM'
   TARGET: 'vol_label_30m'
-  TYPE: 'GBT'
-  LEARNING_RATE: 0.05
-  MAX_DEPTH: 6
-  N_ESTIMATORS: 300
+  HIDDEN_SIZE: 64
+  NUM_LAYERS: 2
+  DROPOUT: 0.1
+  LEARNING_RATE: 0.001
+  BATCH_SIZE: 1024
+  EPOCHS: 20
+  PATIENCE: 10
   SAVE_PATH: '../../models'

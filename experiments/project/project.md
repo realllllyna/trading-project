@@ -123,14 +123,17 @@ und untersucht ihr Verhalten um einen festen Zeitindex herum.
 
 ### Plots
 
-![03_plot_features_1.png.png](images/03_plot_features_1.png.png)
-![03_plot_features_2.png.png](images/03_plot_features_2.png.png)
-![03_plot_features_3.png.png](images/03_plot_features_3.png.png)
-![03_plot_features_4.png.png](images/03_plot_features_4.png.png)
-![03_plot_features_5.png.png](images/03_plot_features_5.png.png)
-![03_plot_features_6.png.png](images/03_plot_features_6.png.png)
+![03_feature_zeitreihe.png](images/03_feature_zeitreihe.png)
+*Wie stark sich der Preis innerhalb von jeweils 15 Minuten verändert hat.*
 
-*Plots of selected features over time for AAPL.*
+![03_histogramm_des_targets.png](images/03_histogramm_des_targets.png)
+*Es gibt nur sehr selten sehr hohe Volatilität.*
+
+![03_intraday_volatility_pattern.png](images/03_intraday_volatility_pattern.png)
+*Volatilität ist zum Tagesstart und Tagesende deutlich erhöht.*
+
+![03_scatter_feature_vs_target.png](images/03_scatter_feature_vs_target.png)
+*Höhere kurzfristige Volatilität geht meist mit höherer zukünftiger Volatilität einher.*
 
 ### Data after feature engineering
 [`features_example.csv`](data/features_example.csv)
@@ -163,7 +166,7 @@ und dem Volatilitäts-Label und liefert ein klares Ranking der Feature-Wichtigke
 
 ### Feature Importance
 
-![06_random_forest.png.png](images/06_random_forest.png.png)
+![06_random_forest.png.png](images/06_random_forest.png)
 
 *Zeitbasierte Muster und kurzfristige Volatilitäts-Features sind am wichtigsten.
 Alle 13 Features werden für das LSTM weiterverwendet.*
