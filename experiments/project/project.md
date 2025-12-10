@@ -170,9 +170,9 @@ und dem Volatilitäts-Label und liefert ein klares Ranking der Feature-Wichtigke
 
 ### Feature Importance
 
-![06_random_forest.png.png](images/06_random_forest.png)
-
-*Zeitbasierte Muster und kurzfristige Volatilitäts-Features sind am wichtigsten.
-Alle 13 Features werden für das LSTM weiterverwendet.*
+![06_random_forest.png](images/06_random_forest.png)
+*Zeitbasierte Muster und kurzfristige Volatilitäts-Features sind am wichtigsten.*
 
 ---
+
+## Step 7 - 
