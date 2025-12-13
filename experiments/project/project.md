@@ -147,10 +147,10 @@ Für jeden Split (Train/Validation/Test) werden aus jeweils **30 Minuten Histori
 und das passende Target erzeugt und als kompakte .npz-Shards gespeichert.
 
 ### Script
-[`build_lstm_sequences.py`](scripts/04_split_data/build_lstm_sequences.py)
+[`build_lstm_sequences.py`](../archieve/04_split_data/build_lstm_sequences.py)
 
 ### Data after building sequences
-[`sequence_example.csv`](data/sequence_example.csv)
+[`sequence_example.csv`](../archieve/sequence_example.csv)
 
 ---
 

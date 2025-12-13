@@ -1,26 +1,12 @@
 """
 Feature engineering utilities for volatility experiment.
 
-Aus 1-Minuten-Bars werden Eingangsfeatures für das LSTM gebaut.
+Aus 1-Minuten-Bars werden Eingangsfeatures gebaut.
 Verwendet werden nur Informationen aus der Vergangenheit (bis Zeitpunkt τ).
 
-Berechnete Features (pro Symbol, pro Minute):
-- 1-Minuten-Log-Return
-- Rolling Returns (5 Minuten)
-- Rolling Volatilität (15 Minuten)
-- Abweichung vom VWAP
-- VWAP-Z-Score (30 Minuten)
-- Volume-Z-Score (30 Minuten) + Rolling Volume (15 Minuten)
-- High-Low-Spread (aktuelle Minute)
-- Rolling High-Low-Range (15 Minuten)
-- Zeitmerkmale: Minute im Handelstag (sin/cos), Dummy für Eröffnung/Schlussphase
-
-Inputs:
-- DataFrame mit Spalten: 'timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'vwap'
-
-Outputs:
-- DataFrame mit zusätzlichen Feature-Spalten
-- Liste der neuen Feature-Namen (für features.txt)
+WICHTIG:
+- Rolling-Features werden pro Handelstag berechnet (keine Vermischung über Nacht).
+- Zeitfeatures werden in US/Eastern berechnet (DST-safe, falls tz-aware Timestamps).
 """
 
 from __future__ import annotations
@@ -31,78 +17,86 @@ import pandas as pd
 EPS = 1e-12
 
 
-def generate_features(
-        bars_df: pd.DataFrame,
-) -> tuple[pd.DataFrame, list[str]]:
+def generate_features(bars_df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     df = bars_df.copy()
 
     # Sicherstellen, dass timestamp Datetime ist
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df = df.sort_values("timestamp").reset_index(drop=True)
 
-    # -----------------------------
-    # 1. Preisbasierte Features
-    # -----------------------------
-    # 1-Minuten-Log-Return
-    df["log_ret_1m"] = np.log(df["Close"] / df["Close"].shift(1))
-
-    # Rolling Return (letzte 5 Minuten)
-    df["roll_ret_5m"] = df["log_ret_1m"].rolling(5).sum()
-
-    # Rolling Volatilität (letzte 15 Minuten)
-    df["roll_vol_15m"] = (df["log_ret_1m"] ** 2).rolling(15).mean().pow(0.5)
-
-    # -----------------------------
-    # 2. VWAP & Abweichung
-    # -----------------------------
-    df["vwap_dev"] = (df["Close"] - df["vwap"]) / (df["vwap"] + EPS)
-
-    # VWAP-Z-Score (30 Minuten)
-    vwap_roll_mean = df["vwap"].rolling(30).mean()
-    vwap_roll_std = df["vwap"].rolling(30).std(ddof=0)
-    df["vwap_z_30m"] = (df["vwap"] - vwap_roll_mean) / (vwap_roll_std + EPS)
-
-    # -----------------------------
-    # 3. Volumen & Liquidität
-    # -----------------------------
-    vol_roll_mean = df["Volume"].rolling(30).mean()
-    vol_roll_std = df["Volume"].rolling(30).std(ddof=0)
-    df["volume_z_30m"] = (df["Volume"] - vol_roll_mean) / (vol_roll_std + EPS)
-
-    df["roll_vol_15m_volume"] = df["Volume"].rolling(15).mean()
-
-    # -----------------------------
-    # 4. Handelsbereich
-    # -----------------------------
-    df["hl_spread"] = (df["High"] - df["Low"]) / (df["Close"] + EPS)
-
-    high_max_15 = df["High"].rolling(15).max()
-    low_min_15 = df["Low"].rolling(15).min()
-    df["hl_range_15m"] = (high_max_15 - low_min_15) / (df["Close"] + EPS)
-
-    # -----------------------------
-    # 5. Zeitliche Merkmale
-    # -----------------------------
+    # Lokale Zeit (US/Eastern) für Session-Gruppierung & Zeitfeatures
     ts = df["timestamp"]
-    # Falls Zeitzone gesetzt ist, nach US/Eastern konvertieren, sonst unverändert
     if ts.dt.tz is not None:
         ts_local = ts.dt.tz_convert("US/Eastern")
     else:
+        # Falls doch mal naive timestamps auftauchen: best-effort (keine Annahme über UTC)
         ts_local = ts
 
-    # Minuten seit Handelsbeginn (09:30 US/Eastern): 0..389 bei 1-Minuten-Bars
-    minute_of_session = (ts_local.dt.hour - 9) * 60 + (ts_local.dt.minute - 30)
+    df["_ts_local"] = ts_local
+    df["_date"] = df["_ts_local"].dt.date
 
-    df["time_sin"] = np.sin(2 * np.pi * minute_of_session / 390.0)
-    df["time_cos"] = np.cos(2 * np.pi * minute_of_session / 390.0)
+    def per_day(d: pd.DataFrame) -> pd.DataFrame:
+        d = d.copy()
 
-    df["is_open30"] = (minute_of_session < 30).astype(int)
-    df["is_close30"] = (minute_of_session >= 390 - 30).astype(int)
+        # -----------------------------
+        # 1. Preisbasierte Features
+        # -----------------------------
+        d["log_ret_1m"] = np.log(d["Close"] / d["Close"].shift(1))
+        d["roll_ret_5m"] = d["log_ret_1m"].rolling(5).sum()
+        d["roll_vol_15m"] = (d["log_ret_1m"] ** 2).rolling(15).mean().pow(0.5)
 
-    # -----------------------------
+        # -----------------------------
+        # 2. VWAP & Abweichung
+        # -----------------------------
+        d["vwap_dev"] = (d["Close"] - d["vwap"]) / (d["vwap"] + EPS)
+
+        vwap_roll_mean = d["vwap"].rolling(30).mean()
+        vwap_roll_std = d["vwap"].rolling(30).std(ddof=0)
+        d["vwap_z_30m"] = (d["vwap"] - vwap_roll_mean) / (vwap_roll_std + EPS)
+
+        # -----------------------------
+        # 3. Volumen & Liquidität
+        # -----------------------------
+        vol_roll_mean = d["Volume"].rolling(30).mean()
+        vol_roll_std = d["Volume"].rolling(30).std(ddof=0)
+        d["volume_z_30m"] = (d["Volume"] - vol_roll_mean) / (vol_roll_std + EPS)
+
+        d["roll_vol_15m_volume"] = d["Volume"].rolling(15).mean()
+
+        # -----------------------------
+        # 4. Handelsbereich
+        # -----------------------------
+        d["hl_spread"] = (d["High"] - d["Low"]) / (d["Close"] + EPS)
+
+        high_max_15 = d["High"].rolling(15).max()
+        low_min_15 = d["Low"].rolling(15).min()
+        d["hl_range_15m"] = (high_max_15 - low_min_15) / (d["Close"] + EPS)
+
+        # -----------------------------
+        # 5. Zeitliche Merkmale (pro Session)
+        # -----------------------------
+        ts_loc = d["_ts_local"]
+        minute_of_session = (ts_loc.dt.hour - 9) * 60 + (ts_loc.dt.minute - 30)
+
+        # Sicherheit: Clip (falls doch Pre/Post-Market in Daten landet)
+        minute_clip = minute_of_session.clip(lower=0, upper=389)
+
+        d["time_sin"] = np.sin(2 * np.pi * minute_clip / 390.0)
+        d["time_cos"] = np.cos(2 * np.pi * minute_clip / 390.0)
+
+        d["is_open30"] = (minute_of_session < 30).astype(int)
+        d["is_close30"] = (minute_of_session >= 390 - 30).astype(int)
+
+        return d
+
+    # pro Handelstag berechnen (keine overnight Rollings)
+    df = df.groupby("_date", group_keys=False).apply(per_day)
+
     # Featureliste
-    # -----------------------------
     original_cols = bars_df.columns.tolist()
-    features_added = [c for c in df.columns if c not in original_cols]
 
+    # Hilfsspalten entfernen
+    df = df.drop(columns=["_ts_local", "_date"])
+
+    features_added = [c for c in df.columns if c not in original_cols]
     return df, features_added
