@@ -77,7 +77,7 @@ def main():
     train_pattern = os.path.join(SHARDED_ROOT, "train", "train_shard_*.parquet")
     test_pattern = os.path.join(SHARDED_ROOT, "test", "test_shard_*.parquet")
 
-    # Optional: begrenzen, um schneller zu laufen
+    # Begrenzen, um schneller zu laufen
     MAX_TRAIN_SHARDS = 20
     MAX_TEST_SHARDS = 5
 

@@ -1,4 +1,4 @@
-# Vorhersage kurzfristiger Volatilität von S&P-500-Aktien mittels LSTM
+# Vorhersage kurzfristiger Volatilität von S&P-500-Aktien
 
 ## Problem Definition
 
@@ -12,8 +12,7 @@ ob in den nächsten Minuten eine ungewöhnlich starke Preisbewegung kommt.
 
 ### Target
 
-Um zu bestimmen, wie stark sich eine Aktie in den nächsten Minuten bewegt, 
-wird eine **Kennzahl** berechnet.
+Um die künftige Schwankungsintensität zu bestimmen, wird eine Kennzahl berechnet.
 
 **1. Log-Renditen**
 - rₖ = ln(Pₖ / Pₖ₋₁)
@@ -35,11 +34,9 @@ Durch Division durch die eigene Tagesvolatilität wird alles fair.
 
 ### Input Features
 
-Das Modell sieht nur Informationen, die vor Zeitpunkt τ vorhanden sind.
-Als Input wird eine **30-Minuten-Sequenz** aller Merkmale genutzt.
+Das Modell sieht nur Informationen, die **vor Zeitpunkt τ** verfügbar sind (keine Zukunftsinfos).
 
 **1. Preisbezogene Features**
-- Normalisierter Schlusskurs
 - 1-Minuten-Log-Return
 - Rolling Return (5 Minuten)
 - Rolling Volatilität (15 Minuten)
@@ -47,14 +44,14 @@ Als Input wird eine **30-Minuten-Sequenz** aller Merkmale genutzt.
 **2. VWAP & Abweichung**
 - Intraday-VWAP
 - Relative Abweichung vom VWAP
+- VWAP-Z-Score (30 Minuten)
 
 **3. Volumen & Liquidität**
-- Normalisiertes Volumen
-- Rolling-Volume (15 Minuten)
-- Volumenspikes (Volume / SMA-60)
+- Volume-Z-Score (30 Minuten)
+- Rolling Volume (15 Minuten)
 
 **4. Handelsbereich**
-- Normalisierter High-Low-Spread
+- High-Low-Spread
 - Rolling-Range (15 Minuten)
 
 **5. Zeitliche Merkmale**
@@ -65,11 +62,10 @@ Als Input wird eine **30-Minuten-Sequenz** aller Merkmale genutzt.
 ---
 
 ## Step 1 – Data Acquisition
-- Die historischen 1-Minuten-Daten werden über die **Alpaca Market Data API** abgerufen.
+- Historische 1-Minuten-Daten werden über die **Alpaca Market Data API** abgerufen.
 - Für jede Aktie wird eine Datei {TICKER}.parquet gespeichert.
 
 ### Script
-
 [`bar_retriever.py`](scripts/01_data_acquisition/bar_retriever.py)
 
 ![01_AAPL_bar_data.png.png](images/01_AAPL_bar_data.png.png)
@@ -82,7 +78,6 @@ Dieser Schritt visualisiert Intraday-1-Minuten-Open-Preise einzelner S&P-500-Akt
 und untersucht ihr Verhalten um einen festen Zeitindex herum.
 
 ### Script
-
 [`plotter.py`](scripts/02_data_understanding/plotter.py)
 
 ### Plots
@@ -97,28 +92,24 @@ und untersucht ihr Verhalten um einen festen Zeitindex herum.
 ## Step 3 – Pre-Split Preparation
 
 - **Targets berechnen**
-  - Zukünftige realisierte Volatilität bestimmen, normalisieren und in High/Low-Volatility-Labels umwandeln.
+  - Realisierte zukünftige Volatilität (mehrere Horizonte), Normalisierung und binäre Labels.
 
 - **Features erzeugen**
-  - Preis-, Volumen-, VWAP-, Range- und Zeit-Features wie Log-Returns, Rolling-Volatilität, VWAP-Abweichung und sin/cos-Zeitkodierung berechnen.
+  - Preis-, Volumen-, VWAP-, Range- und Zeit-Features.
 
 - **Daten splitten**
-  - Datensatz chronologisch in Train, Validation und Test aufteilen.
+  - Train / Validation / Test nach Datum (keine Zufallssplits).
 
 ### Main Script
-
 [`main.py`](scripts/03_pre_split_prep/main.py)
 
 ### Feature Engineering Script
-
 [`features.py`](scripts/03_pre_split_prep/features.py)
 
 ### Target Computation Script
-
 [`targets.py`](scripts/03_pre_split_prep/targets.py)
 
 ### Plotting Script
-
 [`plot_features.py`](scripts/03_pre_split_prep/plot_features.py)
 
 ### Plots
@@ -142,20 +133,18 @@ und untersucht ihr Verhalten um einen festen Zeitindex herum.
 
 ## Step 4 – Split Data
 
-Die vorbereiteten Minuten-Daten werden in feste **LSTM-Sequenzen** umgewandelt. 
-Für jeden Split (Train/Validation/Test) werden aus jeweils **30 Minuten Historie** eine Eingabesequenz 
-und das passende Target erzeugt und als kompakte .npz-Shards gespeichert.
+Pro Split (Train/Validation/Test) werden alle {symbol}_{split}.parquet Dateien gesammelt. 
+Daten werden gemischt (shuffle), damit Training effizienter ist. 
+Danach werden sie in mehrere Shards gespeichert, um RAM-schonend trainieren zu können.
 
 ### Script
-[`build_lstm_sequences.py`](../archieve/04_split_data/build_lstm_sequences.py)
-
-### Data after building sequences
-[`sequence_example.csv`](../archieve/sequence_example.csv)
+[`shuffle.py`](scripts/04_split_data/shuffle.py)
 
 ---
 
 ## Step 5 – Post-Split Preparation
-Nach der Erstellung der LSTM-Sequenzen sind keine weiteren Schritte notwendig.
+
+Nach Sharding sind keine weiteren Schritte notwendig.
 
 ---
 
@@ -165,7 +154,6 @@ Der Random Forest erkennt **nichtlineare Zusammenhänge** zwischen Features
 und dem Volatilitäts-Label und liefert ein klares Ranking der Feature-Wichtigkeiten.
 
 ### Script
-
 [`main.py`](scripts/06_feature_selection/main.py)
 
 ### Feature Importance
@@ -175,4 +163,60 @@ und dem Volatilitäts-Label und liefert ein klares Ranking der Feature-Wichtigke
 
 ---
 
-## Step 7 - 
+## Step 7 – Model Training
+
+Ein **Gradient Boosted Trees** Modell (LightGBM) wird trainiert:
+- Input: Feature-Spalten aus `features.txt` (+ symbol als kategoriales Feature)
+- Target: `vol_label_30m`
+- Training auf Shards (RAM-schonend)
+- Modell-Output pro Minute: **p(t) = Wahrscheinlichkeit für High Volatility**
+
+### Script
+- Training: [`01_gbt_train.py`](scripts/07_model_training/01_gbt_train.py)
+- Metriken: [`metrics.py`](scripts/07_model_training/metrics.py)
+- Baseline: [`baseline.py`](scripts/07_model_training/baseline.py)
+
+---
+
+## Step 8 – Model Testing 
+Da das Modell keine Richtung (up/down), sondern Volatilitätsrisiko vorhersagt, 
+wird daraus eine Risiko-/Exposure-Strategie abgeleitet:
+- Modell liefert p(t) = P(High Vol)
+- Strategie setzt Exposure (Investitionsgrad) als: w(t) = 1 - p(t) (clipped auf [0,1])
+- Ausführung mit 1-Minuten Delay (kein Lookahead)
+- Transaktionskosten über Turnover (|Δw|)
+
+Auswertung:
+- Equity Curve (Strategie vs Buy&Hold Benchmark)
+- Sharpe, Max Drawdown, Turnover
+- Beispielplots (Preis, p(t), w(t))
+- Verteilung der “Trading Points” über Zeit (pro Tag / Stunde)
+
+### Output 
+...
+
+---
+
+## Step 9 – Deployment
+
+### Deployment (Inference)
+
+- Das trainierte Modell wird geladen und kann auf 
+neue, bereits feature-engineerte Minuten-Daten angewendet werden.
+- Output ist eine CSV mit p(t) pro Minute.
+- Script: scripts/09_deployment/main.py
+
+### Paper Trading (Simulation)
+
+Zusätzlich wird eine Paper-Trading-Simulation 
+auf historischen Testdaten durchgeführt (live-like):
+- chronologisch Minute für Minute
+- gleiche Trading-Regel wie Backtest (w(t)=1-p(t), Delay, Costs)
+
+Reporting:
+- Gesamtperformance (Zeitrahmen, Equity, Sharpe, DD)
+- pro Aktie
+- pro Woche (Time Frame)
+- Vergleich Paper vs Backtest
+
+Script: scripts/09_deployment/paper_trading.py
