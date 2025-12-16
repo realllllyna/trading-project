@@ -165,58 +165,81 @@ und dem Volatilitäts-Label und liefert ein klares Ranking der Feature-Wichtigke
 
 ## Step 7 – Model Training
 
-Ein **Gradient Boosted Trees** Modell (LightGBM) wird trainiert:
-- Input: Feature-Spalten aus `features.txt` (+ symbol als kategoriales Feature)
-- Target: `vol_label_30m`
-- Training auf Shards (RAM-schonend)
-- Modell-Output pro Minute: **p(t) = Wahrscheinlichkeit für High Volatility**
+Für das Modelltraining wurde **Gradient Boosted Trees (LightGBM)** verwendet.
 
-### Script
-- Training: [`01_gbt_train.py`](scripts/07_model_training/01_gbt_train.py)
-- Metriken: [`metrics.py`](scripts/07_model_training/metrics.py)
-- Baseline: [`baseline.py`](scripts/07_model_training/baseline.py)
+### Warum GBT?
+- Sehr gut geeignet für tabellarische Daten
+- Kann nicht-lineare Zusammenhänge lernen
+- Stabil und schnell im Training
+- Keine komplexe Sequenzstruktur nötig (im Gegensatz zu LSTM)Input: Feature-Spalten aus `features.txt` (+ symbol als kategoriales Feature)
+
+### Input (Features):
+- Preis-Features (Returns, Volatilität)
+- Volumen-Features
+- VWAP-Abweichung
+- Handelsbereich (High-Low)
+- Zeit-Features (Minute im Handelstag)
+- Aktien-Symbol als kategoriales Feature
+
+### Output:
+- Wahrscheinlichkeit p(t), dass in den nächsten 30 Minuten hohe Volatilität auftritt
+
+### Ergebnisse
+- Das Modell erreicht eine AUC von über 0.90. 
+- Das zeigt, dass das Modell sehr gut zwischen ruhigen und volatilen Phasen unterscheiden kann.
+![07_model_result_30m.png](images/07_model_result_30m.png)
+
+### Baseline
+- Als Baseline wurde ein konstantes Modell, das immer die durchschnittliche Volatilitätswahrscheinlichkeit ausgibt, verwendet.
+- Das Modell übertrifft diese Baseline deutlich.
+![07_baseline.png](images/07_baseline.png)
 
 ---
 
 ## Step 8 – Model Testing 
-Da das Modell keine Richtung (up/down), sondern Volatilitätsrisiko vorhersagt, 
-wird daraus eine Risiko-/Exposure-Strategie abgeleitet:
-- Modell liefert p(t) = P(High Vol)
-- Strategie setzt Exposure (Investitionsgrad) als: w(t) = 1 - p(t) (clipped auf [0,1])
-- Ausführung mit 1-Minuten Delay (kein Lookahead)
-- Transaktionskosten über Turnover (|Δw|)
 
-Auswertung:
-- Equity Curve (Strategie vs Buy&Hold Benchmark)
-- Sharpe, Max Drawdown, Turnover
-- Beispielplots (Preis, p(t), w(t))
-- Verteilung der “Trading Points” über Zeit (pro Tag / Stunde)
+Was passiert, wenn man die Risiko-Vorhersagen des Modells zum Handeln verwendet?
 
-### Output 
-...
+### Ableitung der Handelsstrategie
+- Das Modell gibt eine Wahrscheinlichkeit p(t) für hohe Volatilität aus.
+- Strategie setzt Exposure (Investitionsgrad) als: `w(t) = 1 - p(t)`
+- Es gibt keine klassischen Kauf- oder Verkaufssignale. Die Investitionsgröße wird kontinuierlich angepasst.
+
+### Prozess
+- Out-of-Sample-Test auf dem Testzeitraum
+- Ausführung mit 1-Minute Verzögerung (kein Look-Ahead)
+- Transaktionskosten werden berücksichtigt
+- Vergleich mit einer Buy-and-Hold-Benchmark
+
+### Ergebnisse
+#### Equity Curve
+![equity_curve.png](results/backtest/equity_curve.png)
+- Die Strategie erzielt eine geringere Gesamtrendite als Buy-and-Hold
+- In starken Marktphasen sind die Verluste jedoch deutlich geringer
+- Die Strategie reduziert Risiko, verzichtet aber auf Rendite.
+
+#### Performance-Tabelle
+![08_performance_tabelle.png](results/backtest/08_performance_tabelle.png)
+- Besonders der geringere Drawdown zeigt,
+dass die Strategie in Stressphasen Kapital schützt.
+
+#### Einzelne Aktie an einem Tag
+![example_AAPL_2025-01-02_price.png](results/backtest/example_AAPL_2025-01-02_price.png)
+![example_AAPL_2025-01-02_prob.png](results/backtest/example_AAPL_2025-01-02_prob.png)
+![example_AAPL_2025-01-02_exposure.png](results/backtest/example_AAPL_2025-01-02_exposure.png)
+- Das Modell erkennt erhöhte Volatilität.
+- Die Strategie reduziert daraufhin die Investitionsgröße.
+
+#### Verteilung der Trading-Aktivität
+![trading_points_by_hour.png](results/backtest/trading_points_by_hour.png)
+*Der Plot zeigt, zu welchen Uhrzeiten meine Strategie handelt.*
+
+![trading_points_per_day.png](results/backtest/trading_points_per_day.png)
+*Der zweite Plot zeigt die Anzahl der Trades pro Tag.*
+
+### Fazit
+Ein gutes Vorhersagemodell garantiert keine profitable Handelsstrategie.
 
 ---
 
 ## Step 9 – Deployment
-
-### Deployment (Inference)
-
-- Das trainierte Modell wird geladen und kann auf 
-neue, bereits feature-engineerte Minuten-Daten angewendet werden.
-- Output ist eine CSV mit p(t) pro Minute.
-- Script: scripts/09_deployment/main.py
-
-### Paper Trading (Simulation)
-
-Zusätzlich wird eine Paper-Trading-Simulation 
-auf historischen Testdaten durchgeführt (live-like):
-- chronologisch Minute für Minute
-- gleiche Trading-Regel wie Backtest (w(t)=1-p(t), Delay, Costs)
-
-Reporting:
-- Gesamtperformance (Zeitrahmen, Equity, Sharpe, DD)
-- pro Aktie
-- pro Woche (Time Frame)
-- Vergleich Paper vs Backtest
-
-Script: scripts/09_deployment/paper_trading.py
