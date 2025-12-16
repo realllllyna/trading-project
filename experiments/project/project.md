@@ -115,15 +115,19 @@ und untersucht ihr Verhalten um einen festen Zeitindex herum.
 ### Plots
 
 ![03_feature_zeitreihe.png](images/03_feature_zeitreihe.png)
+
 *Wie stark sich der Preis innerhalb von jeweils 15 Minuten verändert hat.*
 
 ![03_histogramm_des_targets.png](images/03_histogramm_des_targets.png)
+
 *Es gibt nur sehr selten sehr hohe Volatilität.*
 
 ![03_intraday_volatility_pattern.png](images/03_intraday_volatility_pattern.png)
+
 *Volatilität ist zum Tagesstart und Tagesende deutlich erhöht.*
 
 ![03_scatter_feature_vs_target.png](images/03_scatter_feature_vs_target.png)
+
 *Höhere kurzfristige Volatilität geht meist mit höherer zukünftiger Volatilität einher.*
 
 ### Data after feature engineering
@@ -159,6 +163,7 @@ und dem Volatilitäts-Label und liefert ein klares Ranking der Feature-Wichtigke
 ### Feature Importance
 
 ![06_random_forest.png](images/06_random_forest.png)
+
 *Zeitbasierte Muster und kurzfristige Volatilitäts-Features sind am wichtigsten.*
 
 ---
@@ -187,12 +192,14 @@ Für das Modelltraining wurde **Gradient Boosted Trees (LightGBM)** verwendet.
 ### Ergebnisse
 - Das Modell erreicht eine AUC von über 0.90. 
 - Das zeigt, dass das Modell sehr gut zwischen ruhigen und volatilen Phasen unterscheiden kann.
-![07_model_result_30m.png](images/07_model_result_30m.png)
+
+- ![07_model_result_30m.png](images/07_model_result_30m.png)
 
 ### Baseline
 - Als Baseline wurde ein konstantes Modell, das immer die durchschnittliche Volatilitätswahrscheinlichkeit ausgibt, verwendet.
 - Das Modell übertrifft diese Baseline deutlich.
-![07_baseline.png](images/07_baseline.png)
+
+- ![07_baseline.png](images/07_baseline.png)
 
 ---
 
@@ -232,9 +239,11 @@ dass die Strategie in Stressphasen Kapital schützt.
 
 #### Verteilung der Trading-Aktivität
 ![trading_points_by_hour.png](results/backtest/trading_points_by_hour.png)
+
 *Der Plot zeigt, zu welchen Uhrzeiten meine Strategie handelt.*
 
 ![trading_points_per_day.png](results/backtest/trading_points_per_day.png)
+
 *Der zweite Plot zeigt die Anzahl der Trades pro Tag.*
 
 ### Fazit
