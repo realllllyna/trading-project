@@ -6,6 +6,11 @@ Derivation:
 - Trading algorithm: risk timing via exposure w(t) = 1 - p(t) (clipped)
 - Execution delay: signal at t executed at t+1 minute (no lookahead)
 
+Improvements (to reduce turnover / trading costs):
+1) Smooth the model signal p(t) using EMA
+2) Rebalance only every N minutes (e.g., 5 minutes)
+3) Deadband: only trade if exposure change exceeds a threshold
+
 Outputs:
 - performance_summary.csv
 - portfolio_timeseries.csv
@@ -24,33 +29,113 @@ from performance import equity_curve, sharpe_annualized, max_drawdown, turnover
 from plotting import plot_equity, plot_example, plot_trading_points_distribution
 
 
+# ---------------- Trading logic helpers ----------------
+
 def exposure_rule(p: pd.Series) -> pd.Series:
+    """Map probability to exposure (risk-off when p high)."""
     return (1.0 - p.clip(0.0, 1.0)).clip(0.0, 1.0)
 
 
 def apply_delay(w: pd.Series, steps: int = 1) -> pd.Series:
+    """No-lookahead execution delay."""
     return w.shift(steps).fillna(0.0)
 
 
-def backtest_symbol(df: pd.DataFrame, model, feature_cols: list[str], delay_steps: int, cost_per_turnover: float) -> pd.DataFrame:
+def smooth_signal_ema(p: pd.Series, span: int = 10) -> pd.Series:
+    """
+    Exponential moving average smoothing for p(t).
+    span ~ 10 means moderate smoothing over ~10 minutes.
+    """
+    return p.ewm(span=span, adjust=False).mean()
+
+
+def rebalance_every_n_minutes(w: pd.Series, n: int = 5) -> pd.Series:
+    """
+    Only allow w updates every n minutes.
+    Between rebalancing points, hold previous exposure.
+    """
+    if n <= 1:
+        return w
+
+    # Keep new value only on every n-th row, otherwise NA -> forward fill
+    mask = (pd.Series(range(len(w)), index=w.index) % n == 0)
+    w_reb = w.where(mask)
+    return w_reb.ffill().fillna(0.0)
+
+
+def apply_deadband(w: pd.Series, threshold: float = 0.05) -> pd.Series:
+    """
+    Deadband: only change exposure if the absolute change exceeds threshold.
+    Prevents tiny constant rebalancing.
+    """
+    if threshold <= 0:
+        return w
+
+    w_out = w.copy()
+    last = 0.0
+    for i in range(len(w_out)):
+        cur = float(w_out.iat[i])
+        if abs(cur - last) < threshold:
+            w_out.iat[i] = last
+        else:
+            last = cur
+            w_out.iat[i] = last
+    return w_out
+
+
+# ---------------- Per-symbol backtest ----------------
+
+def backtest_symbol(
+        df: pd.DataFrame,
+        model,
+        feature_cols: list[str],
+        delay_steps: int,
+        cost_per_turnover: float,
+        ema_span: int = 20,
+        rebalance_n: int = 10,
+        deadband: float = 0.1,
+) -> pd.DataFrame:
     df = df.copy()
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df = df.sort_values("timestamp").set_index("timestamp")
 
+    # Minute returns
     r = df["Close"].astype(float).pct_change().fillna(0.0)
 
+    # Model input
     X = df[["symbol"] + feature_cols].copy()
     X["symbol"] = X["symbol"].astype("category")
 
-    p = pd.Series(model.predict(X), index=df.index, name="p")
-    w = apply_delay(exposure_rule(p), delay_steps)
+    # p(t)
+    p_raw = pd.Series(model.predict(X), index=df.index, name="p")
 
+    # ---- Improvements for trading stability ----
+    p = smooth_signal_ema(p_raw, span=ema_span)
+
+    # Convert to exposure
+    w = exposure_rule(p)
+
+    # Rebalance less frequently
+    w = rebalance_every_n_minutes(w, n=rebalance_n)
+
+    # Deadband (only trade if change big enough)
+    w = apply_deadband(w, threshold=deadband)
+
+    # Execution delay (no lookahead)
+    w = apply_delay(w, steps=delay_steps)
+
+    # Turnover + costs
     to = w.diff().abs().fillna(0.0)
     costs = cost_per_turnover * to
     strat_r = (w * r) - costs
 
-    return pd.DataFrame({"Close": df["Close"], "r": r, "p": p, "w": w, "strat_r": strat_r}, index=df.index)
+    return pd.DataFrame(
+        {"Close": df["Close"], "r": r, "p_raw": p_raw, "p": p, "w": w, "strat_r": strat_r},
+        index=df.index
+    )
 
+
+# ---------------- Main ----------------
 
 def main():
     params = load_params()
@@ -61,8 +146,16 @@ def main():
     model_path = find_latest_model(model_dir)
     model = load_model(model_path)
 
-    out_dir = os.path.join("experiments", "project", "results", "backtest")
+    out_dir = os.path.join("../../results", "backtest")
     os.makedirs(out_dir, exist_ok=True)
+
+    # --- Strategy tuning knobs (start with these) ---
+    DELAY_STEPS = 1
+    COST_PER_TURNOVER = 0.0002
+
+    EMA_SPAN = 20        # smoother signal -> less jitter
+    REBALANCE_N = 10      # trade every 5 minutes instead of every minute
+    DEADBAND = 0.1      # ignore exposure changes smaller than 10%
 
     files = list_test_files(processed_path, max_symbols=50)
 
@@ -71,7 +164,16 @@ def main():
         sym = os.path.basename(fp).replace("_test.parquet", "")
         df = pd.read_parquet(fp)
         try:
-            per_symbol[sym] = backtest_symbol(df, model, feature_cols, delay_steps=1, cost_per_turnover=0.0002)
+            per_symbol[sym] = backtest_symbol(
+                df,
+                model,
+                feature_cols,
+                delay_steps=DELAY_STEPS,
+                cost_per_turnover=COST_PER_TURNOVER,
+                ema_span=EMA_SPAN,
+                rebalance_n=REBALANCE_N,
+                deadband=DEADBAND,
+            )
         except Exception as e:
             print(f"Skipping {sym}: {e}")
 
@@ -92,6 +194,11 @@ def main():
         "sharpe_ann": sharpe_annualized(port_strat),
         "max_drawdown": max_drawdown(eq_strat),
         "turnover": turnover(port_w),
+        "ema_span": EMA_SPAN,
+        "rebalance_n": REBALANCE_N,
+        "deadband": DEADBAND,
+        "cost_per_turnover": COST_PER_TURNOVER,
+        "delay_steps": DELAY_STEPS,
     }
     perf_bench = {
         "final_equity": float(eq_bench.iloc[-1]),
@@ -121,6 +228,7 @@ def main():
     plot_trading_points_distribution(port_w, out_dir)
 
     print("Saved backtest results to:", out_dir)
+    print("Strategy settings:", {"EMA_SPAN": EMA_SPAN, "REBALANCE_N": REBALANCE_N, "DEADBAND": DEADBAND})
 
 
 if __name__ == "__main__":

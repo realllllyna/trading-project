@@ -1,0 +1,3 @@
+,final_equity,sharpe_ann,max_drawdown,turnover,ema_span,rebalance_n,deadband,cost_per_turnover,delay_steps
+strategy,0.9572107060339539,-0.8105249371055918,-0.1357399682297099,323.01779377322936,20.0,10.0,0.1,0.0002,1.0
+benchmark,1.0214724592701738,0.3545206824535397,-0.2280271026920062,0.0,,,,,
