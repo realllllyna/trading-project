@@ -193,13 +193,13 @@ Für das Modelltraining wurde **Gradient Boosted Trees (LightGBM)** verwendet.
 - Das Modell erreicht eine AUC von über 0.90. 
 - Das zeigt, dass das Modell sehr gut zwischen ruhigen und volatilen Phasen unterscheiden kann.
 
-- ![07_model_result_30m.png](images/07_model_result_30m.png)
+![07_model_result_30m.png](images/07_model_result_30m.png)
 
 ### Baseline
 - Als Baseline wurde ein konstantes Modell, das immer die durchschnittliche Volatilitätswahrscheinlichkeit ausgibt, verwendet.
 - Das Modell übertrifft diese Baseline deutlich.
 
-- ![07_baseline.png](images/07_baseline.png)
+![07_baseline.png](images/07_baseline.png)
 
 ---
 
