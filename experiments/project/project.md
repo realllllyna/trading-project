@@ -5,10 +5,7 @@
 ### Zielsetzung
 
 In diesem Experiment soll vorhergesagt werden, ob eine **S&P-500-Aktie** in den nächsten
-t = [5, 10, 15, 30, 60] Minuten **ruhig bleibt** (Low Volatility) oder **stark schwankt** (High Volatility).
-
-Für jede Aktie und jede Minute im Zeitraum **01.01.2020 bis 25.06.2025** wird untersucht, 
-ob in den nächsten Minuten eine ungewöhnlich starke Preisbewegung kommt.
+30 Minuten **ruhig bleibt** (Low Volatility) oder **stark schwankt** (High Volatility).
 
 ### Target
 
@@ -74,7 +71,7 @@ Das Modell sieht nur Informationen, die **vor Zeitpunkt τ** verfügbar sind (ke
 
 ## Step 2 – Data Understanding
 
-Dieser Schritt visualisiert Intraday-1-Minuten-Open-Preise einzelner S&P-500-Aktien 
+Dieser Schritt visualisiert Intraday-1-Minuten-Open-Preise einer S&P-500-Aktie 
 und untersucht ihr Verhalten um einen festen Zeitindex herum.
 
 ### Script
@@ -120,7 +117,7 @@ und untersucht ihr Verhalten um einen festen Zeitindex herum.
 
 ![03_histogramm_des_targets.png](images/03_histogramm_des_targets.png)
 
-*Es gibt nur sehr selten sehr hohe Volatilität.*
+*Es gibt sehr selten sehr hohe Volatilität.*
 
 ![03_intraday_volatility_pattern.png](images/03_intraday_volatility_pattern.png)
 
@@ -137,9 +134,8 @@ und untersucht ihr Verhalten um einen festen Zeitindex herum.
 
 ## Step 4 – Split Data
 
-Pro Split (Train/Validation/Test) werden alle {symbol}_{split}.parquet Dateien gesammelt. 
-Daten werden gemischt (shuffle), damit Training effizienter ist. 
-Danach werden sie in mehrere Shards gespeichert, um RAM-schonend trainieren zu können.
+Pro Split (Train/Validation/Test) werden alle Dateien gesammelt. 
+Daten werden gemischt. Danach werden sie in mehrere Shards gespeichert.
 
 ### Script
 [`shuffle.py`](scripts/04_split_data/shuffle.py)
@@ -176,7 +172,7 @@ Für das Modelltraining wurde **Gradient Boosted Trees (LightGBM)** verwendet.
 - Sehr gut geeignet für tabellarische Daten
 - Kann nicht-lineare Zusammenhänge lernen
 - Stabil und schnell im Training
-- Keine komplexe Sequenzstruktur nötig (im Gegensatz zu LSTM)Input: Feature-Spalten aus `features.txt` (+ symbol als kategoriales Feature)
+- Keine komplexe Sequenzstruktur nötig (im Gegensatz zu LSTM)
 
 ### Input (Features):
 - Preis-Features (Returns, Volatilität)
@@ -205,24 +201,31 @@ Für das Modelltraining wurde **Gradient Boosted Trees (LightGBM)** verwendet.
 
 ## Step 8 – Model Testing 
 
-Was passiert, wenn man die Risiko-Vorhersagen des Modells zum Handeln verwendet?
+In diesem Schritt wird geprüft, wie gut das trainierte Modell in einer realistischen Handelssituation funktioniert.
+
+Dazu wird eine Trading-Strategie aus den Modellvorhersagen abgeleitet und auf historischen Daten getestet.
 
 ### Ableitung der Handelsstrategie
-- Das Modell gibt eine Wahrscheinlichkeit p(t) für hohe Volatilität aus.
+- Das Modell gibt eine Wahrscheinlichkeit `p(t)` für hohe Volatilität aus.
 - Strategie setzt Exposure (Investitionsgrad) als: `w(t) = 1 - p(t)`
-- Es gibt keine klassischen Kauf- oder Verkaufssignale. Die Investitionsgröße wird kontinuierlich angepasst.
+  - Niedrige Volatilität → Exposure erhöhen
+  - Hohe Volatilität → Exposure reduzieren
+- Das gleichgewichtes Portfolio ist nicht immer voll investiert. Es passt sich dem vorhergesagten Risiko an.
 
 ### Prozess
 - Out-of-Sample-Test auf dem Testzeitraum
 - Ausführung mit 1-Minute Verzögerung (kein Look-Ahead)
 - Transaktionskosten werden berücksichtigt
-- Vergleich mit einer Buy-and-Hold-Benchmark
+- Vergleich mit einem Buy-and-Hold Portfolio
+  - bis zu 50 S&P-500-Aktien
+  - immer voll investiert
+  - keine Risikoanpassung
 
 ### Ergebnisse
 #### Equity Curve
 ![equity_curve.png](results/backtest/equity_curve.png)
-- Die Strategie erzielt eine geringere Gesamtrendite als Buy-and-Hold
-- In starken Marktphasen sind die Verluste jedoch deutlich geringer
+- Die Strategie erzielt eine geringere Gesamtrendite als Buy-and-Hold.
+- In starken Marktphasen sind die Verluste jedoch deutlich geringer.
 - Die Strategie reduziert Risiko, verzichtet aber auf Rendite.
 
 #### Performance-Tabelle
@@ -240,15 +243,41 @@ dass die Strategie in Stressphasen Kapital schützt.
 #### Verteilung der Trading-Aktivität
 ![trading_points_by_hour.png](results/backtest/trading_points_by_hour.png)
 
-*Der Plot zeigt, zu welchen Uhrzeiten meine Strategie handelt.*
+*Der Plot zeigt, zu welchen Uhrzeiten die Strategie handelt.*
 
 ![trading_points_per_day.png](results/backtest/trading_points_per_day.png)
 
 *Der zweite Plot zeigt die Anzahl der Trades pro Tag.*
 
 ### Fazit
-Ein gutes Vorhersagemodell garantiert keine profitable Handelsstrategie.
+- Die Handelsstrategie reduziert Risiko in turbulenten Phasen und vermeidet große Drawdowns.
+- Die Rendite liegt oft unter Buy-and-Hold, dafür stabilerer Verlauf und geringeres Risiko.
 
 ---
 
 ## Step 9 – Deployment
+
+Dieses Deployment führt das trainierte 30-Minuten-Volatilitätsmodell in einem Paper-Trading Setup aus.
+
+### Überblick
+- Input: Live 1-Minuten-Bars (nur Informationen bis Zeitpunkt τ)
+- Output: Modellscore p(τ) + Ziel-Exposure w(τ) + Orders/Fills + Logs + Report
+  - Hohe Volatilität → Exposure reduzieren
+  - Ruhige Phase → Exposure erhöhen
+
+### Paper Trading Setup
+- Umgebung: Alpaca Paper Trading (Orders gehen in Paper, nicht live).
+- Gehandelte Symbole: S&P-500 Subset
+- Handelszeiten: nur Regular Trading Hours
+
+### Pipeline Ablauf
+1. Bars laden (1-Minuten-Daten bis τ)
+2. Features berechnen
+3. Modell laden & scoren → p(τ) pro Symbol
+4. Exposure ableiten → w(τ) = 1 − p(τ)
+5. Paper Orders platzieren (falls Rebalance aktiv)
+6. Logging (Scores, Exposure, Orders/Fills, Positionen, Equity)
+7. Report erstellen (report.py)
+
+### Performance Auswertung
+`report.py` erstellt eine detaillierte Analyse der Paper-Runs.

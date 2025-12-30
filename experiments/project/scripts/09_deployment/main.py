@@ -1,66 +1,340 @@
-"""
-Step 9a – Deployment / Inference
-
-Dieses Skript zeigt, dass das trainierte LightGBM-Modell
-außerhalb des Trainings lauffähig ist und Vorhersagen erzeugt.
-
-Output:
-- CSV mit p(t) = Wahrscheinlichkeit für High Volatility pro Minute
-"""
-
 from __future__ import annotations
 
 import os
-import glob
-import pandas as pd
+
 import lightgbm as lgb
+import numpy as np
+import pandas as pd
 import yaml
+from alpaca.data.live import StockDataStream
+from alpaca.trading.client import TradingClient
+from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
+from alpaca.trading.requests import MarketOrderRequest, GetOrdersRequest
+
+EPS = 1e-12
+
+# -------------------------------------------------
+# Trading-Regel
+# -------------------------------------------------
+BUY_TH = 0.40
+SELL_TH = 0.60
+QTY = 1
+
+# -------------------------------------------------
+# 1) Zeit Debug (tz-safe)
+# -------------------------------------------------
+now_utc = pd.Timestamp.utcnow()
+print("NOW UTC:", now_utc)
+print("NOW ET :", now_utc.tz_convert("US/Eastern"))
+print("NOW BER:", now_utc.tz_convert("Europe/Berlin"))
+
+# -------------------------------------------------
+# 2) Keys laden
+# -------------------------------------------------
+with open("../../conf/keys.yaml", "r", encoding="utf-8") as f:
+    keys = yaml.safe_load(f)
+
+API_KEY = keys["KEYS"]["APCA-API-KEY-ID-Data"]
+SECRET = keys["KEYS"]["APCA-API-SECRET-KEY-Data"]
+
+print("API KEY geladen:", API_KEY[:6], "...")
+
+# -------------------------------------------------
+# 3) Alpaca Clients (Paper Trading + Live Data Stream)
+# -------------------------------------------------
+trade = TradingClient(api_key=API_KEY, secret_key=SECRET, paper=True)
+account = trade.get_account()
+print("Paper account OK | Equity:", account.equity)
+
+stream = StockDataStream(API_KEY, SECRET)
+
+# -------------------------------------------------
+# 4) Modell + Featureliste laden
+# -------------------------------------------------
+MODEL_PATH = "../../models/gbt_vol_label_30m.txt"
+model = lgb.Booster(model_file=MODEL_PATH)
+print("Model loaded:", MODEL_PATH)
+
+FEATURES_TXT = "../03_pre_split_prep/features.txt"
+with open(FEATURES_TXT, "r", encoding="utf-8") as f:
+    FEATURE_COLS = [ln.strip() for ln in f if ln.strip()]
+
+print("Features loaded:", len(FEATURE_COLS), FEATURE_COLS)
+
+# -------------------------------------------------
+# 5) Deployment-Konfig
+# -------------------------------------------------
+SYMBOLS = ["NVDA"]
+
+LOG_DIR = "live_logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+
+SIGNALS_CSV = os.path.join(LOG_DIR, "signals.csv")  # jede Minute p,w,action
+ORDERS_CSV = os.path.join(LOG_DIR, "orders.csv")  # Order submissions
+FILLS_CSV = os.path.join(LOG_DIR, "fills.csv")  # Filled/Closed Orders Snapshots
 
 
-def load_params() -> dict:
-    with open("../../conf/params.yaml", "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+# -------------------------------------------------
+# 6) RTH check
+# -------------------------------------------------
+def is_rth(ts_utc: pd.Timestamp) -> bool:
+    ts_et = ts_utc.tz_convert("US/Eastern")
+    t = ts_et.time()
+    return (t >= pd.Timestamp("09:30").time()) and (t < pd.Timestamp("16:00").time())
 
 
-def load_features() -> list[str]:
-    with open("../03_pre_split_prep/features.txt", "r", encoding="utf-8") as f:
-        return [l.strip() for l in f if l.strip()]
+# -------------------------------------------------
+# 7) Buffer pro Symbol (nur aktueller ET-Tag)
+# -------------------------------------------------
+buffers: dict[str, pd.DataFrame] = {s: pd.DataFrame() for s in SYMBOLS}
 
 
-def find_latest_model(model_dir: str) -> str:
-    models = sorted(glob.glob(os.path.join(model_dir, "*.txt")))
-    if not models:
-        raise FileNotFoundError("Kein Modell gefunden.")
-    return models[-1]
+def keep_only_today_et(df: pd.DataFrame, ts_utc: pd.Timestamp) -> pd.DataFrame:
+    if df.empty:
+        return df
+    cur_date = ts_utc.tz_convert("US/Eastern").date()
+    df = df.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
+    df["_date_et"] = df["timestamp"].dt.tz_convert("US/Eastern").dt.date
+    df = df[df["_date_et"] == cur_date].drop(columns=["_date_et"]).reset_index(drop=True)
+    return df
 
 
-def main():
-    params = load_params()
-    feature_cols = load_features()
+# -------------------------------------------------
+# 8) Features wie in features.py (pro Tag)
+# -------------------------------------------------
+def compute_features_last_row(df_day: pd.DataFrame) -> dict | None:
+    if df_day is None or len(df_day) < 70:
+        return None
 
-    processed_path = params["FEATURE_ENGINEERING"]["PROCESSED_PATH"]
-    model_dir = params["MODEL"]["SAVE_PATH"]
+    d = df_day.sort_values("timestamp").reset_index(drop=True)
 
-    model_path = find_latest_model(model_dir)
-    model = lgb.Booster(model_file=model_path)
+    close = d["Close"].astype(float)
+    high = d["High"].astype(float)
+    low = d["Low"].astype(float)
+    vol = d["Volume"].astype(float)
 
-    # Beispiel: erste Test-Datei
-    test_files = sorted(glob.glob(os.path.join(processed_path, "*_test.parquet")))
-    df = pd.read_parquet(test_files[0])
+    # VWAP intraday
+    dv = close * vol
+    vwap = dv.cumsum() / (vol.cumsum() + EPS)
 
-    X = df[["symbol"] + feature_cols].copy()
+    # Preisfeatures
+    log_ret_1m = np.log(close / close.shift(1))
+    roll_ret_5m = log_ret_1m.rolling(5, min_periods=5).sum()
+    roll_vol_15m = (log_ret_1m ** 2).rolling(15, min_periods=15).mean().pow(0.5)
+
+    # VWAP Features
+    vwap_dev = (close - vwap) / (vwap + EPS)
+    vwap_roll_mean = vwap.rolling(30, min_periods=30).mean()
+    vwap_roll_std = vwap.rolling(30, min_periods=30).std(ddof=0)
+    vwap_z_30m = (vwap - vwap_roll_mean) / (vwap_roll_std + EPS)
+
+    # Volume Features
+    vol_roll_mean = vol.rolling(30, min_periods=30).mean()
+    vol_roll_std = vol.rolling(30, min_periods=30).std(ddof=0)
+    volume_z_30m = (vol - vol_roll_mean) / (vol_roll_std + EPS)
+    roll_vol_15m_volume = vol.rolling(15, min_periods=15).mean()
+
+    # Range Features
+    hl_spread = (high - low) / (close + EPS)
+    high_max_15 = high.rolling(15, min_periods=15).max()
+    low_min_15 = low.rolling(15, min_periods=15).min()
+    hl_range_15m = (high_max_15 - low_min_15) / (close + EPS)
+
+    # Zeitfeatures (ET)
+    ts = pd.to_datetime(d["timestamp"], utc=True, errors="coerce")
+    ts_et = ts.dt.tz_convert("US/Eastern")
+    minute_of_session = (ts_et.dt.hour - 9) * 60 + (ts_et.dt.minute - 30)
+    minute_clip = minute_of_session.clip(lower=0, upper=389)
+
+    time_sin = np.sin(2 * np.pi * minute_clip / 390.0)
+    time_cos = np.cos(2 * np.pi * minute_clip / 390.0)
+    is_open30 = (minute_of_session < 30).astype(int)
+    is_close30 = (minute_of_session >= 360).astype(int)
+
+    i = len(d) - 1
+
+    feat_all = {
+        "log_ret_1m": float(log_ret_1m.iat[i]),
+        "roll_ret_5m": float(roll_ret_5m.iat[i]),
+        "roll_vol_15m": float(roll_vol_15m.iat[i]),
+        "vwap_dev": float(vwap_dev.iat[i]),
+        "vwap_z_30m": float(vwap_z_30m.iat[i]),
+        "volume_z_30m": float(volume_z_30m.iat[i]),
+        "roll_vol_15m_volume": float(roll_vol_15m_volume.iat[i]),
+        "hl_spread": float(hl_spread.iat[i]),
+        "hl_range_15m": float(hl_range_15m.iat[i]),
+        "time_sin": float(time_sin.iat[i]),
+        "time_cos": float(time_cos.iat[i]),
+        "is_open30": int(is_open30.iat[i]),
+        "is_close30": int(is_close30.iat[i]),
+    }
+
+    out = {}
+    for c in FEATURE_COLS:
+        if c not in feat_all:
+            return None
+        out[c] = feat_all[c]
+
+    if any(pd.isna(list(out.values()))):
+        return None
+
+    return out
+
+
+# -------------------------------------------------
+# 9) Logging helper
+# -------------------------------------------------
+def append_csv(path: str, row: dict) -> None:
+    pd.DataFrame([row]).to_csv(
+        path,
+        mode="a",
+        header=not os.path.exists(path),
+        index=False
+    )
+
+
+# -------------------------------------------------
+# Orders + Fills helper
+# -------------------------------------------------
+def has_position(symbol: str) -> bool:
+    try:
+        trade.get_open_position(symbol)
+        return True
+    except Exception:
+        return False
+
+
+def submit_market(side: str, symbol: str, qty: int) -> tuple[str | None, str | None]:
+    req = MarketOrderRequest(
+        symbol=symbol,
+        qty=qty,
+        side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
+        time_in_force=TimeInForce.DAY,
+    )
+    try:
+        od = trade.submit_order(req)
+        order_id = getattr(od, "id", None) or (od.get("id") if isinstance(od, dict) else None)
+        status = getattr(od, "status", None) or (od.get("status") if isinstance(od, dict) else None)
+        return order_id, status
+    except Exception as e:
+        print(f"[order] {side.upper()} {symbol} failed: {e}")
+        return None, None
+
+
+def snapshot_recent_closed_orders(symbol: str, limit: int = 20) -> None:
+    """Schreibt eine Momentaufnahme der zuletzt geschlossenen Orders (inkl. Fills) in fills.csv."""
+    try:
+        req = GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=limit)
+        orders = trade.get_orders(req)
+    except Exception:
+        return
+
+    for o in orders:
+        sym = (getattr(o, "symbol", "") or "").upper()
+        if sym != symbol.upper():
+            continue
+
+        append_csv(FILLS_CSV, {
+            "logged_at_utc": pd.Timestamp.utcnow().isoformat(),
+            "order_id": getattr(o, "id", None),
+            "symbol": sym,
+            "side": str(getattr(o, "side", "")),
+            "status": str(getattr(o, "status", "")),
+            "qty": str(getattr(o, "qty", "")),
+            "filled_qty": str(getattr(o, "filled_qty", "")),
+            "filled_avg_price": str(getattr(o, "filled_avg_price", "")),
+            "submitted_at": str(getattr(o, "submitted_at", "")),
+            "filled_at": str(getattr(o, "filled_at", "")),
+        })
+
+
+# -------------------------------------------------
+# 10) Async Bar Handler
+# -------------------------------------------------
+async def on_bar(bar):
+    sym = bar.symbol
+    ts = pd.Timestamp(bar.timestamp).tz_convert("UTC")
+
+    if not is_rth(ts):
+        return
+
+    print("BAR:", sym, ts, "CLOSE:", bar.close)
+
+    row = {
+        "timestamp": ts,
+        "Open": float(bar.open),
+        "High": float(bar.high),
+        "Low": float(bar.low),
+        "Close": float(bar.close),
+        "Volume": float(bar.volume),
+    }
+
+    df = buffers[sym]
+    df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+    df = keep_only_today_et(df, ts)
+    buffers[sym] = df
+
+    feats = compute_features_last_row(df)
+    if feats is None:
+        return
+
+    X = pd.DataFrame([{"symbol": sym, **feats}])
     X["symbol"] = X["symbol"].astype("category")
 
-    df["p_high_vol"] = model.predict(X)
+    raw = float(model.predict(X)[0])
+    p = raw
+    if p < 0.0 or p > 1.0:
+        p = 1.0 / (1.0 + np.exp(-p))
+    p = float(np.clip(p, 0.0, 1.0))
+    w = 1.0 - p
 
-    out_dir = "../../results/deployment"
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, "predictions_example.csv")
-    df[["timestamp", "symbol", "p_high_vol"]].to_csv(out_path, index=False)
+    pos_before = has_position(sym)
+    action = "HOLD"
+    order_id = None
+    order_status = None
 
-    print("Deployment Prediction gespeichert unter:")
-    print(out_path)
+    if (p < BUY_TH) and (not pos_before):
+        action = "BUY"
+        order_id, order_status = submit_market("buy", sym, QTY)
+
+    elif (p > SELL_TH) and pos_before:
+        action = "SELL"
+        order_id, order_status = submit_market("sell", sym, QTY)
+
+    print(f"  -> p={p:.3f}, w={w:.3f}, pos={pos_before} -> {action}")
+
+    append_csv(SIGNALS_CSV, {
+        "timestamp_utc": ts.isoformat(),
+        "symbol": sym,
+        "close": float(bar.close),
+        "p_high_vol": p,
+        "w_exposure": w,
+        "pos_before": int(pos_before),
+        "action": action,
+        "order_id": order_id,
+        "order_status": order_status,
+    })
+
+    if action in ("BUY", "SELL"):
+        append_csv(ORDERS_CSV, {
+            "timestamp_utc": ts.isoformat(),
+            "symbol": sym,
+            "action": action,
+            "qty": QTY,
+            "order_id": order_id,
+            "submit_status": order_status,
+        })
+        # Fill Snapshot nach Order (damit du "Fills" zeigen kannst)
+        snapshot_recent_closed_orders(sym, limit=20)
 
 
-if __name__ == "__main__":
-    main()
+# -------------------------------------------------
+# 11) Subscribe & Run
+# -------------------------------------------------
+for s in SYMBOLS:
+    stream.subscribe_bars(on_bar, s)
+
+print("Subscribed to:", SYMBOLS)
+print("Waiting for live bars... (US-RTH)")
+stream.run()
