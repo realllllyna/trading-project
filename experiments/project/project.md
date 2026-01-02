@@ -203,30 +203,34 @@ Für das Modelltraining wurde **Gradient Boosted Trees (LightGBM)** verwendet.
 
 In diesem Schritt wird geprüft, wie gut das trainierte Modell in einer realistischen Handelssituation funktioniert.
 
-Dazu wird eine Trading-Strategie aus den Modellvorhersagen abgeleitet und auf historischen Daten getestet.
+Dazu wird eine Trading-Strategie aus den Modellvorhersagen abgeleitet und auf historischen Daten im Testzeitraum getestet.
 
 ### Ableitung der Handelsstrategie
-- Das Modell gibt eine Wahrscheinlichkeit `p(t)` für hohe Volatilität aus.
+- Das Modell gibt pro Minute eine Wahrscheinlichkeit `p(t)` aus, dass in den nächsten 30 Minuten hohe Volatilität auftritt.
 - Strategie setzt Exposure (Investitionsgrad) als: `w(t) = 1 - p(t)`
   - Niedrige Volatilität → Exposure erhöhen
   - Hohe Volatilität → Exposure reduzieren
-- Das gleichgewichtes Portfolio ist nicht immer voll investiert. Es passt sich dem vorhergesagten Risiko an.
+- Um unnötig häufiges Rebalancing zu vermeiden, wird das Signal stabilisiert:
+  - EMA-Glättung von `p(t)`
+  - Rebalancing nur alle N Minuten
+  - Deadband (Kleine Exposure-Änderungen werden ignoriert)
+- Ausführung erfolgt mit 1-Minute Verzögerung (kein Look-Ahead).
 
 ### Prozess
 - Out-of-Sample-Test auf dem Testzeitraum
-- Ausführung mit 1-Minute Verzögerung (kein Look-Ahead)
+- Strategie pro Symbol, anschließend equal-weight Portfolio (bis zu 50 S&P-500-Aktien)
 - Transaktionskosten werden berücksichtigt
 - Vergleich mit einem Buy-and-Hold Portfolio
-  - bis zu 50 S&P-500-Aktien
+  - gleichgewichtet (bis zu 50 Aktien)
   - immer voll investiert
   - keine Risikoanpassung
 
 ### Ergebnisse
 #### Equity Curve
 ![equity_curve.png](results/backtest/equity_curve.png)
-- Die Strategie erzielt eine geringere Gesamtrendite als Buy-and-Hold.
+- Die Strategie erzielt häufig eine geringere Gesamtrendite als Buy-and-Hold, da sie in riskanten Phasen Exposure reduziert.
 - In starken Marktphasen sind die Verluste jedoch deutlich geringer.
-- Die Strategie reduziert Risiko, verzichtet aber auf Rendite.
+- Insgesamt reduziert die Strategie Risiko, verzichtet dafür teilweise auf Rendite.
 
 #### Performance-Tabelle
 ![08_performance_tabelle.png](results/backtest/08_performance_tabelle.png)
@@ -243,15 +247,15 @@ dass die Strategie in Stressphasen Kapital schützt.
 #### Verteilung der Trading-Aktivität
 ![trading_points_by_hour.png](results/backtest/trading_points_by_hour.png)
 
-*Der Plot zeigt, zu welchen Uhrzeiten die Strategie handelt.*
+*Der Plot zeigt, zu welchen Uhrzeiten die Strategie Exposure-Änderungen ausführt.*
 
 ![trading_points_per_day.png](results/backtest/trading_points_per_day.png)
 
-*Der zweite Plot zeigt die Anzahl der Trades pro Tag.*
+*Der Plot zeigt die Anzahl der Exposure-Änderungen pro Tag.*
 
 ### Fazit
 - Die Handelsstrategie reduziert Risiko in turbulenten Phasen und vermeidet große Drawdowns.
-- Die Rendite liegt oft unter Buy-and-Hold, dafür stabilerer Verlauf und geringeres Risiko.
+- Die Rendite liegt oft unter Buy-and-Hold, dafür ist der Verlauf stabiler und das Risiko geringer.
 
 ---
 
