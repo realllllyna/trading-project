@@ -261,27 +261,31 @@ dass die Strategie in Stressphasen Kapital schützt.
 
 ## Step 9 – Deployment
 
-Dieses Deployment führt das trainierte 30-Minuten-Volatilitätsmodell in einem Paper-Trading Setup aus.
+In diesem Schritt wird das trainierte Modell in einem Paper-Trading Setup live ausgeführt. 
 
-### Überblick
-- Input: Live 1-Minuten-Bars (nur Informationen bis Zeitpunkt τ)
-- Output: Modellscore p(τ) + Ziel-Exposure w(τ) + Orders/Fills + Logs + Report
-  - Hohe Volatilität → Exposure reduzieren
-  - Ruhige Phase → Exposure erhöhen
-
-### Paper Trading Setup
-- Umgebung: Alpaca Paper Trading (Orders gehen in Paper, nicht live).
+### Setup
+- Umgebung: Alpaca Paper Trading (keine echten Trades)
+- Input: Live 1-Minuten Bars während US Regular Trading Hours (09:30–16:00 ET)
 - Gehandelte Symbole: S&P-500 Subset
-- Handelszeiten: nur Regular Trading Hours
+- Trading-Logik wie Schritt 8
 
 ### Pipeline Ablauf
-1. Bars laden (1-Minuten-Daten bis τ)
-2. Features berechnen
-3. Modell laden & scoren → p(τ) pro Symbol
-4. Exposure ableiten → w(τ) = 1 − p(τ)
-5. Paper Orders platzieren (falls Rebalance aktiv)
-6. Logging (Scores, Exposure, Orders/Fills, Positionen, Equity)
-7. Report erstellen (report.py)
+1. Live Bars empfangen
+2. Intraday-Buffer aktualisieren (nur aktueller ET-Tag)
+3. Features berechnen
+4. Modell scoren → `p_raw(t)` und geglättet `p_ema(t)`
+5. Exposure ableiten → `w_target(t)` und nach Delay `w_exec(t)`
+6. Zielposition berechnen (Target Shares aus `w_exec`, Equity und aktuellem Preis)
+7. Rebalancing ausführen (Market Orders nur wenn Abweichung groß genug)
+8. Logging (Signals jede Minute + Orders/Fills bei Trades)
+9. Report erzeugen (`report.py` fasst Logs zusammen und erstellt Plots)
 
 ### Performance Auswertung
-`report.py` erstellt eine detaillierte Analyse der Paper-Runs.
+`report.py` liest die Logfiles und erzeugt eine kompakte Auswertung.
+- `summary.txt`: Zeitraum, Signalanzahl, BUY/SELL/HOLD-Verteilung, p/w-Statistiken, Orders/Fills Counts.
+- Plots:
+  - `plot_p_w.png` (p und w über Zeit)
+  - `plot_price_with_actions.png` (Preis + BUY/SELL Marker)
+  - `plot_actions.png` (p + BUY/SELL Marker)
+  - `plot_trades_by_hour.png`, `plot_trades_by_day.png` (Trading-Aktivität)
+  - `plot_account_equity.png` (Equity über Zeit, falls geloggt)

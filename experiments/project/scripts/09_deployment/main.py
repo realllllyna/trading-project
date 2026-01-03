@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections import deque
 
 import lightgbm as lgb
 import numpy as np
@@ -16,9 +17,12 @@ EPS = 1e-12
 # -------------------------------------------------
 # Trading-Regel
 # -------------------------------------------------
-BUY_TH = 0.40
-SELL_TH = 0.60
-QTY = 1
+EMA_SPAN = 20
+REBALANCE_N = 10
+DEADBAND = 0.10
+DELAY_STEPS = 1
+
+MIN_QTY_TRADE = 10
 
 # -------------------------------------------------
 # 1) Zeit Debug (tz-safe)
@@ -64,7 +68,7 @@ print("Features loaded:", len(FEATURE_COLS), FEATURE_COLS)
 # -------------------------------------------------
 # 5) Deployment-Konfig
 # -------------------------------------------------
-SYMBOLS = ["NVDA"]
+SYMBOLS = ["AAPL", "MSFT", "NVDA"]
 
 LOG_DIR = "live_logs"
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -81,6 +85,11 @@ def is_rth(ts_utc: pd.Timestamp) -> bool:
     ts_et = ts_utc.tz_convert("US/Eastern")
     t = ts_et.time()
     return (t >= pd.Timestamp("09:30").time()) and (t < pd.Timestamp("16:00").time())
+
+
+def minute_of_session(ts_utc: pd.Timestamp) -> int:
+    ts_et = ts_utc.tz_convert("US/Eastern")
+    return int((ts_et.hour - 9) * 60 + (ts_et.minute - 30))
 
 
 # -------------------------------------------------
@@ -101,10 +110,28 @@ def keep_only_today_et(df: pd.DataFrame, ts_utc: pd.Timestamp) -> pd.DataFrame:
 
 
 # -------------------------------------------------
+# State pro Symbol (EMA + deadband + delay)
+# -------------------------------------------------
+state = {
+    s: {
+        "ema_p": None,
+        "last_w": 0.0,
+        "delay": deque([0.0] * (DELAY_STEPS + 1), maxlen=DELAY_STEPS + 1),
+    }
+    for s in SYMBOLS
+}
+
+
+def ema_update(prev: float | None, x: float, span: int) -> float:
+    alpha = 2.0 / (span + 1.0)
+    return x if prev is None else alpha * x + (1.0 - alpha) * prev
+
+
+# -------------------------------------------------
 # 8) Features wie in features.py (pro Tag)
 # -------------------------------------------------
 def compute_features_last_row(df_day: pd.DataFrame) -> dict | None:
-    if df_day is None or len(df_day) < 70:
+    if df_day is None or len(df_day) < 31:
         return None
 
     d = df_day.sort_values("timestamp").reset_index(drop=True)
@@ -144,13 +171,13 @@ def compute_features_last_row(df_day: pd.DataFrame) -> dict | None:
     # Zeitfeatures (ET)
     ts = pd.to_datetime(d["timestamp"], utc=True, errors="coerce")
     ts_et = ts.dt.tz_convert("US/Eastern")
-    minute_of_session = (ts_et.dt.hour - 9) * 60 + (ts_et.dt.minute - 30)
-    minute_clip = minute_of_session.clip(lower=0, upper=389)
+    minute_of_session_series = (ts_et.dt.hour - 9) * 60 + (ts_et.dt.minute - 30)
+    minute_clip = minute_of_session_series.clip(lower=0, upper=389)
 
     time_sin = np.sin(2 * np.pi * minute_clip / 390.0)
     time_cos = np.cos(2 * np.pi * minute_clip / 390.0)
-    is_open30 = (minute_of_session < 30).astype(int)
-    is_close30 = (minute_of_session >= 360).astype(int)
+    is_open30 = (minute_of_session_series < 30).astype(int)
+    is_close30 = (minute_of_session_series >= 360).astype(int)
 
     i = len(d) - 1
 
@@ -197,12 +224,12 @@ def append_csv(path: str, row: dict) -> None:
 # -------------------------------------------------
 # Orders + Fills helper
 # -------------------------------------------------
-def has_position(symbol: str) -> bool:
+def get_position_qty(symbol: str) -> int:
     try:
-        trade.get_open_position(symbol)
-        return True
+        pos = trade.get_open_position(symbol)
+        return int(float(getattr(pos, "qty", 0) or 0))
     except Exception:
-        return False
+        return 0
 
 
 def submit_market(side: str, symbol: str, qty: int) -> tuple[str | None, str | None]:
@@ -256,10 +283,12 @@ async def on_bar(bar):
     sym = bar.symbol
     ts = pd.Timestamp(bar.timestamp).tz_convert("UTC")
 
-    if not is_rth(ts):
-        return
+    # Debug: zeigt ob Bars grundsätzlich ankommen
+    print("BAR (raw):", sym, ts, "CLOSE:", bar.close)
 
-    print("BAR:", sym, ts, "CLOSE:", bar.close)
+    if not is_rth(ts):
+        print("  -> outside RTH, skipping")
+        return
 
     row = {
         "timestamp": ts,
@@ -283,34 +312,76 @@ async def on_bar(bar):
     X["symbol"] = X["symbol"].astype("category")
 
     raw = float(model.predict(X)[0])
-    p = raw
-    if p < 0.0 or p > 1.0:
-        p = 1.0 / (1.0 + np.exp(-p))
-    p = float(np.clip(p, 0.0, 1.0))
-    w = 1.0 - p
 
-    pos_before = has_position(sym)
+    # p_raw: falls logits, sigmoid; sonst direkt
+    p_raw = raw if (0.0 <= raw <= 1.0) else float(1.0 / (1.0 + np.exp(-raw)))
+    p_raw = float(np.clip(p_raw, 0.0, 1.0))
+
+    # ----- Logik: EMA -> w -> rebalance -> deadband -> delay -----
+    st = state[sym]
+
+    # EMA smoothing
+    p_ema = ema_update(st["ema_p"], p_raw, EMA_SPAN)
+    st["ema_p"] = p_ema
+
+    # exposure rule
+    w_raw = float(np.clip(1.0 - p_ema, 0.0, 1.0))
+
+    # rebalance only every N minutes (ab 09:30 ET)
+    mos = minute_of_session(ts)
+    can_reb = (mos >= 0) and (mos % REBALANCE_N == 0)
+    w_candidate = w_raw if can_reb else st["last_w"]
+
+    # deadband
+    if abs(w_candidate - st["last_w"]) < DEADBAND:
+        w_target = st["last_w"]
+    else:
+        w_target = w_candidate
+        st["last_w"] = w_target
+
+    # delay (execute previous target)
+    st["delay"].append(w_target)
+    w_exec = float(st["delay"][0])  # bei DELAY_STEPS=1: w von t-1
+
+    # ----- Umsetzung als Target-Exposure (Position size) -----
+    acc = trade.get_account()
+    equity = float(acc.equity)
+    n = max(1, len(SYMBOLS))
+
+    target_dollars = (equity * w_exec) / n
+    px = max(float(bar.close), EPS)
+    target_qty = int(np.floor(target_dollars / px))
+
+    cur_qty = get_position_qty(sym)
+    delta = target_qty - cur_qty
+
     action = "HOLD"
     order_id = None
     order_status = None
 
-    if (p < BUY_TH) and (not pos_before):
-        action = "BUY"
-        order_id, order_status = submit_market("buy", sym, QTY)
+    if abs(delta) >= MIN_QTY_TRADE:
+        if delta > 0:
+            action = "BUY"
+            order_id, order_status = submit_market("buy", sym, int(delta))
+        else:
+            action = "SELL"
+            order_id, order_status = submit_market("sell", sym, int(-delta))
 
-    elif (p > SELL_TH) and pos_before:
-        action = "SELL"
-        order_id, order_status = submit_market("sell", sym, QTY)
-
-    print(f"  -> p={p:.3f}, w={w:.3f}, pos={pos_before} -> {action}")
+    print(
+        f"  -> p_raw={p_raw:.3f}, p_ema={p_ema:.3f}, w_tgt={w_target:.3f}, w_exec={w_exec:.3f}, qty {cur_qty}->{target_qty} -> {action}")
 
     append_csv(SIGNALS_CSV, {
         "timestamp_utc": ts.isoformat(),
         "symbol": sym,
         "close": float(bar.close),
-        "p_high_vol": p,
-        "w_exposure": w,
-        "pos_before": int(pos_before),
+        "p_raw": p_raw,
+        "p_ema": float(p_ema),
+        "w_target": float(w_target),
+        "w_exec": float(w_exec),
+        "cur_qty": int(cur_qty),
+        "target_qty": int(target_qty),
+        "delta_qty": int(delta),
+        "account_equity": equity,
         "action": action,
         "order_id": order_id,
         "order_status": order_status,
@@ -321,11 +392,10 @@ async def on_bar(bar):
             "timestamp_utc": ts.isoformat(),
             "symbol": sym,
             "action": action,
-            "qty": QTY,
+            "qty": int(abs(delta)),
             "order_id": order_id,
             "submit_status": order_status,
         })
-        # Fill Snapshot nach Order (damit du "Fills" zeigen kannst)
         snapshot_recent_closed_orders(sym, limit=20)
 
 
